@@ -2,7 +2,11 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#2563a6">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <title>HRM Leave Management System</title>
 <style>
 :root{--navy:#2563a6;--navy2:#3b82c4;--bg:#eff7ff;--line:#c9e0f5;--text:#17324d;--muted:#5e7891;--blue:#dbeafe;--blueText:#1d4ed8;--red:#fee2e2;--redText:#b91c1c;--purple:#f3e8ff;--purpleText:#7e22ce;--green:#d9f3e6;--greenText:#176548;--orange:#ffedd5;--orangeText:#9a3412;--teal:#ccfbf1;--tealText:#115e59;--white:#fff;--mc:#e0f2fe;--mcText:#075985}
@@ -132,7 +136,113 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
   #calendarFilters{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px!important;padding:8px}
   #calendarFilters .filter-toggle,#calendarFilters #showAllFilters{min-height:38px;padding:8px 6px;font-size:.78rem}
 }
-#monthLeaveSummary .details-item[data-record-id]{cursor:pointer}#monthLeaveSummary .details-item[data-record-id]:focus-visible{outline:3px solid #60a5fa;outline-offset:2px}</style>
+#monthLeaveSummary .details-item[data-record-id]{cursor:pointer}#monthLeaveSummary .details-item[data-record-id]:focus-visible{outline:3px solid #60a5fa;outline-offset:2px}
+/* ===== Phone experience (<=600px): bottom nav, bigger touch targets, sheets, FAB ===== */
+#fabAdd,#heroMenuBtn{display:none}
+@media (max-width:600px){
+  html{-webkit-text-size-adjust:100%;scroll-behavior:smooth}
+  body{-webkit-tap-highlight-color:transparent;overscroll-behavior-y:none}
+  .app{padding:8px 8px calc(86px + env(safe-area-inset-bottom));}
+  button,.day,.details-item,.record,.employee-row{touch-action:manipulation}
+  button{min-height:44px}
+  button:active{transform:scale(.96);filter:brightness(.94)}
+  .day:active{transform:scale(.94)}
+  input,select,textarea{font-size:16px!important;min-height:46px}
+  textarea{min-height:90px}
+
+  /* compact header */
+  .hero{padding:12px;gap:8px;border-radius:14px;position:relative}
+  .hero p{display:none}
+  .hero h1{font-size:1.1rem}
+  .rolebar{gap:6px;flex-wrap:wrap}
+  .rolebar .clockbox{flex:1 1 100%}
+  .rolebar button,.rolebar select{min-height:40px;padding:6px 10px;font-size:.85rem}
+  .rolebar .pill{max-width:46vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+  /* stats as compact tiles */
+  .stats{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .stat strong{font-size:1.5rem}
+
+  /* bottom navigation bar */
+  .tabs{position:fixed!important;left:0;right:0;bottom:0;top:auto!important;z-index:900;margin:0!important;
+    padding:6px 6px calc(6px + env(safe-area-inset-bottom))!important;gap:4px;flex-wrap:nowrap;overflow-x:auto;
+    background:var(--white,#fff);border-top:1px solid var(--line);box-shadow:0 -4px 18px #17324d22}
+  :root.dark .tabs{background:#0f1c26}
+  .tabs button{flex:1 1 0!important;min-width:56px;min-height:54px;padding:5px 2px!important;border-radius:12px;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+    font-size:.6rem!important;line-height:1.1;white-space:normal!important;text-align:center;overflow:hidden;border:0}
+  .tabs button::before{font-size:1.25rem;line-height:1}
+  .tabs button[data-tab="calendarView"]::before{content:"📅"}
+  .tabs button[data-tab="leaveView"]::before{content:"✏️"}
+  .tabs button[data-tab="employeesView"]::before{content:"👥"}
+  .tabs button[data-tab="usersView"]::before{content:"🔑"}
+  .tabs button[data-tab="leaveTypesView"]::before{content:"🏷️"}
+  .tabs button[data-tab="reportsView"]::before{content:"📊"}
+  .tabs button.active{background:#d5eaff;color:#174d80;font-weight:800}
+  :root.dark .tabs button.active{background:#2b5a86;color:#fff}
+
+  /* toast notice pinned to top instead of scrolling the page */
+  #notice{position:fixed;left:10px;right:10px;top:calc(10px + env(safe-area-inset-top));z-index:1200;margin:0;
+    box-shadow:0 8px 28px #0004;animation:toastIn .22s ease}
+  @keyframes toastIn{from{transform:translateY(-14px);opacity:0}to{transform:none;opacity:1}}
+
+  /* calendar: coloured bars instead of unreadable names; tap a day for details */
+  .day{min-height:58px;padding:3px 2px}
+  .hijri-date{display:none}
+  .leave-chip{font-size:0!important;height:6px;padding:0!important;margin-top:3px;border-radius:3px}
+  .more{font-size:.52rem}
+  .day.selected{box-shadow:0 0 0 2px #2563a6;transform:none}
+  .day.today .daynum{background:#2563a6;color:#fff}
+  .monthbar{position:sticky;top:0;z-index:30;background:var(--white,#fff);padding:6px 0}
+  :root.dark .monthbar{background:#18262c}
+  .month-controls button{min-width:44px}
+  #calendarFilters{max-height:132px;overflow-y:auto}
+
+  /* forms and lists */
+  .layout,.panel{min-width:0}
+  .employee-row,.record-head{flex-wrap:wrap}
+  .employee-actions{width:100%;flex-direction:row!important}
+  .employee-actions button{flex:1}
+  table{display:block;overflow-x:auto;max-width:100%}
+
+  /* modals become bottom sheets */
+  .modal-overlay{align-items:flex-end!important;padding:0!important}
+  .edit-employee-modal{width:100%!important;max-height:92vh;border-radius:20px 20px 0 0!important;
+    padding-bottom:calc(16px + env(safe-area-inset-bottom));animation:sheetUp .24s ease}
+  @keyframes sheetUp{from{transform:translateY(40px);opacity:0}to{transform:none;opacity:1}}
+  .login-overlay{align-items:end;padding:0}
+  .login-card{width:100%;border-radius:20px 20px 0 0;padding:22px 18px calc(22px + env(safe-area-inset-bottom))}
+
+  /* floating add-leave button */
+  #fabAdd{position:fixed;right:16px;bottom:calc(84px + env(safe-area-inset-bottom));z-index:950;width:58px;height:58px;
+    border-radius:50%;padding:0;font-size:1.9rem;line-height:1;background:#2563a6;color:#fff;
+    box-shadow:0 8px 22px #2563a688;align-items:center;justify-content:center}
+  #fabAdd.show{display:flex;animation:fabIn .2s ease}
+  @keyframes fabIn{from{transform:scale(.5);opacity:0}to{transform:none;opacity:1}}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+
+@media (max-width:600px){
+  .hero{overflow:hidden}
+  .readonly-note{font-size:.8rem;padding:8px 10px}
+  .hijri-month-subtitle{font-size:.82rem}
+  .gregorian-month-title{font-size:1.05rem}
+  .monthbar h2{font-size:1rem}
+}
+
+@media (max-width:600px){
+  #heroMenuBtn{display:block;position:absolute;top:10px;right:10px;width:44px;height:44px;padding:0;font-size:1.4rem;border-radius:12px}
+  .hero h1{padding-right:52px}
+  .hero:not(.menu-open) .rolebar>:not(.clockbox):not(#currentRole){display:none!important}
+  .hero.menu-open #heroMenuBtn{background:#2563a6;color:#fff}
+  .rolebar{flex-wrap:wrap!important}
+  .clockbox{flex-direction:row!important;flex-wrap:wrap;align-items:center!important;gap:2px 10px;padding:6px 10px!important}
+  .clock-time{font-size:1.05rem!important}
+  .tabs{gap:2px!important;padding-left:4px!important;padding-right:4px!important}
+  .tabs button{min-width:60px!important;font-size:.58rem!important;padding:5px 1px!important}
+  .tabs button.active{scroll-margin:0 40px}
+}
+</style>
 </head>
 <body>
 <div id="loginOverlay" class="login-overlay"><div class="login-card">
@@ -265,6 +375,18 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
         <div class="field"><label for="editEmployeeIc">IC number</label><input id="editEmployeeIc"></div>
         <div class="field"><label for="editEmployeeFileNo">File number</label><input id="editEmployeeFileNo"></div>
         <div class="record-actions"><button type="submit">Save changes</button><button type="button" class="secondary" id="cancelEditEmployeeBtn">Cancel</button></div>
+      </form>
+    </div>
+  </div>
+  <div id="editUserModal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="editUserTitle">
+    <div class="panel edit-employee-modal">
+      <h2 id="editUserTitle">Edit user details</h2>
+      <form id="editUserForm">
+        <div class="field"><label for="editUserName">User name *</label><input id="editUserName" required maxlength="80"></div>
+        <div class="field"><label for="editUserEmail">Email (login)</label><input id="editUserEmail" readonly></div>
+        <div class="field"><label for="editUserRole">Access role *</label><select id="editUserRole" required><option value="Admin">Admin — full access</option><option value="Editor">Editor — can add/edit data</option><option value="Viewer">Viewer — view only</option></select></div>
+        <div class="field"><label>Password</label><p class="muted" style="margin:0 0 8px">Passwords cannot be viewed or set directly for security. Send the user a reset link by email instead.</p><button type="button" class="secondary" id="sendResetBtn">Send password reset email</button></div>
+        <div class="record-actions"><button type="submit">Save changes</button><button type="button" class="secondary" id="cancelEditUserBtn">Cancel</button></div>
       </form>
     </div>
   </div>
@@ -593,7 +715,7 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
   }
   $('logoutBtn').addEventListener('click',()=>{ if(fbAuth) fbAuth.signOut(); });
 
-  function notify(msg,error=false){const n=$('notice');n.textContent=msg;n.classList.remove('hidden','error');if(error)n.classList.add('error');window.scrollTo({top:0,behavior:'smooth'});setTimeout(()=>n.classList.add('hidden'),4500);}
+  function notify(msg,error=false){const n=$('notice');n.textContent=msg;n.classList.remove('hidden','error');if(error)n.classList.add('error');if(!matchMedia('(max-width:600px)').matches)window.scrollTo({top:0,behavior:'smooth'});clearTimeout(notify._t);notify._t=setTimeout(()=>n.classList.add('hidden'),4500);}
   function showTab(id){if(!isAdmin()&&['leaveView','employeesView'].includes(id))id='calendarView';document.querySelectorAll('section[id$="View"]').forEach(s=>s.classList.toggle('hidden',s.id!==id));document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('active',b.dataset.tab===id));if(id==='calendarView')renderCalendar();}
   document.querySelectorAll('.tabs button').forEach(b=>b.addEventListener('click',()=>showTab(b.dataset.tab)));
   $('employeeSummaryCard').addEventListener('click',()=>{
@@ -908,7 +1030,7 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
   }
   function renderUsers(){
     const list=$('userList');if(!list)return;
-    list.innerHTML=systemUsers.map(u=>`<div class="employee-row"><div class="employee-details"><strong>${esc(u.name)}</strong><div class="muted">@${esc(u.username)} · ${esc(u.role)}${u.builtIn?' · built-in account':''}</div></div><div class="employee-actions"><button type="button" class="secondary small" data-change-user="${esc(u.id)}">Change role/password</button><button type="button" class="danger small" data-delete-user="${esc(u.id)}" ${u.builtIn?'disabled':''}>Delete user</button></div></div>`).join('');
+    list.innerHTML=systemUsers.map(u=>`<div class="employee-row"><div class="employee-details"><strong>${esc(u.name)}</strong><div class="muted">Email: ${esc(u.username)}</div><div class="muted">Role: ${esc(u.role)}${currentUser&&currentUser.username===u.username?' · (you)':''}</div></div><div class="employee-actions"><button type="button" class="secondary small" data-change-user="${esc(u.id)}">Edit details</button><button type="button" class="danger small" data-delete-user="${esc(u.id)}" ${u.builtIn?'disabled':''}>Delete user</button></div></div>`).join('');
   }
   $('userForm').addEventListener('submit', async e=>{
     e.preventDefault(); if(!requireAdmin('add users')||!fbDb) return;
@@ -942,15 +1064,12 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
     if(!user) return;
     try{
       if(change){
-        const role=prompt('Access role: Admin, Editor, or Viewer',user.role); if(role===null) return;
-        const roleMap={admin:'Admin',editor:'Editor',viewer:'Viewer'};
-        const r=roleMap[role.trim().toLowerCase()];
-        if(!r){ notify('Role must be Admin, Editor, or Viewer.',true); return; }
-        if(user.username===currentUser.username && r!=='Admin' && !confirm('You are changing your own role. You will lose admin access. Continue?')) return;
-        await fbDb.collection('access').doc(user.id).update({role:r});
-        if(confirm(`Role updated. Also send a password-reset email to ${user.username}?`)){
-          await fbAuth.sendPasswordResetEmail(user.username); notify('Role updated and password-reset email sent.');
-        } else notify('Role updated.');
+        $('editUserName').value=user.name||'';
+        $('editUserEmail').value=user.username;
+        $('editUserRole').value=user.role;
+        $('editUserModal').dataset.userId=user.id;
+        $('editUserModal').classList.remove('hidden');
+        $('editUserName').focus();
       }else if(del){
         if(currentUser.username===user.username){ notify('You cannot remove the account currently signed in.',true); return; }
         if(confirm(`Remove access for ${user.username}? (Their login stays in Firebase Authentication but cannot open this system.)`)){
@@ -958,6 +1077,24 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
         }
       }
     }catch(err){ notify('Action failed: '+(err.code||err.message),true); }
+  });
+  $('cancelEditUserBtn').addEventListener('click',()=>$('editUserModal').classList.add('hidden'));
+  $('editUserModal').addEventListener('click',e=>{ if(e.target===$('editUserModal')) $('editUserModal').classList.add('hidden'); });
+  $('editUserForm').addEventListener('submit', async e=>{
+    e.preventDefault(); if(!requireAdmin('edit users')||!fbDb) return;
+    const id=$('editUserModal').dataset.userId, user=systemUsers.find(u=>u.id===id); if(!user) return;
+    const name=$('editUserName').value.trim(), role=$('editUserRole').value;
+    if(user.username===currentUser.username && role!=='Admin' && !confirm('You are changing your own role. You will lose admin access. Continue?')) return;
+    try{
+      await fbDb.collection('access').doc(id).update({name,role});
+      $('editUserModal').classList.add('hidden'); notify('User details updated.');
+    }catch(err){ notify('Could not update user: '+(err.code||err.message),true); }
+  });
+  $('sendResetBtn').addEventListener('click', async ()=>{
+    if(!requireAdmin('send password reset')||!fbAuth) return;
+    const email=$('editUserEmail').value;
+    try{ await fbAuth.sendPasswordResetEmail(email); notify('Password reset email sent to '+email+'.'); }
+    catch(err){ notify('Could not send reset email: '+(err.code||err.message),true); }
   });
   function renderAll(){renderLeaveTypeOptions();renderStats();renderEmployees();renderReports();renderCalendar();if(typeof applyLanguage==='function')applyLanguage();}
   function updateReason(){
@@ -1329,6 +1466,33 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
     const blob=new Blob([JSON.stringify({exportedAt:new Date().toISOString(),...data},null,2)],{type:'application/json'});
     const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='holiday-leave-backup.json';a.click();URL.revokeObjectURL(url);notify('Backup exported.');
   });
+  // ===== Phone interactions =====
+  const heroEl=document.querySelector('.hero');
+  if(heroEl){
+    const mb=document.createElement('button'); mb.id='heroMenuBtn'; mb.type='button'; mb.textContent='☰'; mb.setAttribute('aria-label','Menu');
+    mb.addEventListener('click',()=>heroEl.classList.toggle('menu-open'));
+    heroEl.appendChild(mb);
+    heroEl.addEventListener('click',e=>{ if(e.target.closest('.rolebar button')&&!e.target.closest('#themeToggle')) setTimeout(()=>heroEl.classList.remove('menu-open'),150); });
+  }
+  document.addEventListener('click',e=>{ const t=e.target.closest('.tabs button'); if(t&&t.scrollIntoView) setTimeout(()=>t.scrollIntoView({inline:'center',block:'nearest',behavior:'smooth'}),30); });
+  const isPhone=()=>matchMedia('(max-width:600px)').matches;
+  const buzz=()=>{ if(isPhone()&&navigator.vibrate) try{navigator.vibrate(8);}catch{} };
+  document.addEventListener('click',e=>{ if(e.target.closest('button,.day')) buzz(); },true);
+  const tabsNav=document.querySelector('.tabs');
+  if(tabsNav) tabsNav.addEventListener('click',e=>{ if(e.target.closest('button')&&isPhone()) window.scrollTo({top:0,behavior:'smooth'}); });
+  if($('calendarGrid')) $('calendarGrid').addEventListener('click',e=>{
+    if(!isPhone()||!e.target.closest('.day')) return;
+    setTimeout(()=>{ const el=document.getElementById('selectedDateTitle'); if(el) el.scrollIntoView({behavior:'smooth',block:'start'}); },80);
+  });
+  const fab=document.createElement('button');
+  fab.id='fabAdd'; fab.type='button'; fab.textContent='＋'; fab.setAttribute('aria-label','Add leave for selected date');
+  fab.addEventListener('click',()=>{ const b=document.getElementById('addForDate'); if(b) b.click(); window.scrollTo({top:0,behavior:'smooth'}); });
+  document.body.appendChild(fab);
+  setInterval(()=>{
+    const cal=document.getElementById('calendarView');
+    const show=isPhone()&&canEditData()&&cal&&!cal.classList.contains('hidden')&&$('loginOverlay').classList.contains('hidden');
+    fab.classList.toggle('show',!!show);
+  },400);
   resetLeaveForm();renderAll();applyLanguage();updateAccessUI();
 })();
 </script>
