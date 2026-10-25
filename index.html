@@ -298,7 +298,8 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
 <script src="firebase-config.js"></script>
 <script>
 (() => {
-  const $ = id => document.getElementById(id);
+  // Missing elements (e.g. removed buttons) return a harmless detached <div> instead of null.
+  const $ = id => document.getElementById(id) || document.createElement('div');
   const today = new Date();
   const localISO = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   const parseDate = s => { const [y,m,d]=s.split('-').map(Number); return new Date(y,m-1,d,12); };
