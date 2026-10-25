@@ -321,10 +321,18 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
   const $ = id => document.getElementById(id);
   const today = new Date();
   const localISO = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-  const parseDate = s => { const [y,m,d]=s.split('-').map(Number); return new Date(y,m-1,d,12); };
+  const parseDate = s => {
+    if (!s) return new Date(NaN);
+    const v=String(s).trim();
+    let m=v.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+    if(m) return new Date(Number(m[1]),Number(m[2])-1,Number(m[3]),12);
+    m=v.match(/^(\d{1,2})[-\s]([A-Za-z]{3,})[-\s](\d{4})$/);
+    if(m){ const months={jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11}; const mi=months[m[2].slice(0,3).toLowerCase()]; if(mi!==undefined) return new Date(Number(m[3]),mi,Number(m[1]),12); }
+    return new Date(v+'T12:00:00');
+  };
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const typeClass = t => t==='Annual Leave'?'annual':t==='Emergency Leave'?'emergency':t==='CSDS Leave'?'csds':t==='Cuti Beranak'?'cutiberanak':t==='Mandatory'?'mandatory':'mc';
-  const countDays = (s,e) => (!s||!e||e<s)?0:Math.round((parseDate(e)-parseDate(s))/86400000)+1;
+  const countDays = (s,e) => { if(!s||!e) return 0; const a=parseDate(s),b=parseDate(e); if(Number.isNaN(a.getTime())||Number.isNaN(b.getTime())||b<a) return 0; const au=Date.UTC(a.getFullYear(),a.getMonth(),a.getDate()),bu=Date.UTC(b.getFullYear(),b.getMonth(),b.getDate()); return Math.floor((bu-au)/86400000)+1; };
   const dateLabel = s => s ? parseDate(s).toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'}) : '';
   let data = {employees:[],leaves:[],leaveTypes:['Annual Leave','Emergency Leave','CSDS Leave','Cuti Beranak','Mandatory','MC']};
   try { const saved=JSON.parse(localStorage.getItem('holidayLeaveData')||'null'); if(saved&&Array.isArray(saved.employees)&&Array.isArray(saved.leaves)) data=saved; } catch {}
@@ -1101,41 +1109,45 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
     }
   });
   $('leaveForm').addEventListener('submit',async e=>{
+    e.preventDefault();
+    if(!requireDataAccess('save leave applications'))return;
+    if(!liveDataReady || !firebaseDb || !firebaseUser){
+      notify('Not connected to Cloud Firestore. Sign out and sign in again before saving.',true);return;
+    }
     const reasonRequiredTypes=data.requiredReasonTypes||['MC','Emergency Leave','CSDS Leave'];
-    const selectedLeaveType=$('leaveTypeSelect')?.value || '';
-    const enteredReason=$('leaveReason').value.trim();
-    if(reasonRequiredTypes.includes(selectedLeaveType) && !enteredReason){
-      e.preventDefault();
+    const type=$('leaveTypeSelect').value;
+    const reason=type==='Annual Leave'?'':$('leaveReason').value.trim();
+    if(reasonRequiredTypes.includes(type) && !reason){
       $('leaveReason').setCustomValidity('Reason is required for MC, Emergency Leave, and CSDS Leave.');
-      $('leaveReason').reportValidity();
-      $('leaveReason').focus();
-      return;
+      $('leaveReason').reportValidity();$('leaveReason').focus();return;
     }
     $('leaveReason').setCustomValidity('');
-
-    e.preventDefault();if(!requireDataAccess('save leave applications'))return;
-    const employeeId=$('leaveEmployee').value,emp=data.employees.find(x=>x.id===employeeId);
-    const type=$('leaveTypeSelect').value,start=$('leaveStart').value,end=$('leaveEnd').value,reason=type==='Annual Leave'?'':$('leaveReason').value.trim();
+    const employeeId=$('leaveEmployee').value;
+    const emp=data.employees.find(x=>String(x.id)===String(employeeId));
+    const start=$('leaveStart').value,end=$('leaveEnd').value;
     if(!emp){notify('Please select an employee.',true);return;}
     if(!start||!end||end<start){notify('Please choose a valid start and end date.',true);return;}
-    if((data.requiredReasonTypes||['MC','Emergency Leave','CSDS Leave']).includes(type)&&!reason){notify('Please enter a reason for this leave type.',true);return;}
-    const record={id:editingId||Date.now(),employeeId,name:emp.name,type,start,end,reason};
+    const record={id:editingId||Date.now(),employeeId:emp.id,name:emp.name,type,start,end,reason};
+    const oldLeaves=data.leaves.slice();
     if(editingId!==null){data.leaves=data.leaves.map(l=>String(l.id)===String(editingId)?record:l);}
     else{data.leaves.push(record);}
-    selectedDate=start;month=new Date(parseDate(start).getFullYear(),parseDate(start).getMonth(),1);
-    renderAll();
-    try {
-      const cloudSaved = await persist({requireCloud:true, notify:false});
-      if (!cloudSaved) throw new Error('Cloud save was not confirmed.');
+    const saveBtn=$('saveLeaveBtn');
+    saveBtn.disabled=true;saveBtn.textContent='Saving to Firestore…';
+    try{
+      await persist({requireCloud:true,notify:false});
+      // Render only after Firestore confirms the write, so the visible UI matches saved data.
+      selectedDate=start;const startDate=parseDate(start);month=new Date(startDate.getFullYear(),startDate.getMonth(),1);
+      renderAll();resetLeaveForm();showTab('calendarView');
       notify(editingId!==null?'Leave record updated and saved to Firestore.':'Leave application saved to Firestore.');
-      resetLeaveForm();showTab('calendarView');
-    } catch(err) {
-      // Keep the form open so the user can retry; don't imply that the cloud save succeeded.
-      notify('Leave is visible in this browser but was NOT saved online: '+(err.message||err),true);
+    }catch(err){
+      data.leaves=oldLeaves;renderAll();
+      notify('Could not save this leave to Firestore, so it was not added. '+(err.message||err)+' Check Firestore Rules and that your account is Admin or Editor.',true);
+    }finally{
+      saveBtn.disabled=false;saveBtn.textContent=editingId!==null?'Save changes':'Save leave';
     }
   });
   document.querySelectorAll('input[name="leaveType"]').forEach(r=>r.addEventListener('change',updateReason));
-  ['leaveStart','leaveEnd'].forEach(id=>$(id).addEventListener('change',()=>{if(id==='leaveStart'&&$('leaveEnd').value&&$('leaveEnd').value<$('leaveStart').value)$('leaveEnd').value=$('leaveStart').value;updateDayCount();}));
+  ['leaveStart','leaveEnd'].forEach(id=>{ const onDateChange=()=>{ if(id==='leaveStart'&&$('leaveEnd').value&&$('leaveEnd').value<$('leaveStart').value) $('leaveEnd').value=$('leaveStart').value; updateDayCount(); }; $(id).addEventListener('input',onDateChange); $(id).addEventListener('change',onDateChange); });
   $('cancelEditBtn').addEventListener('click',resetLeaveForm);
   $('calendarGrid').addEventListener('click',e=>{const d=e.target.closest('[data-date]');if(!d)return;selectedDate=d.dataset.date;const dt=parseDate(selectedDate);month=new Date(dt.getFullYear(),dt.getMonth(),1);renderCalendar();});
   $('monthLeaveSummary').addEventListener('click',e=>{
