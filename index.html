@@ -244,16 +244,19 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
   </section>
   <section id="usersView" class="hidden">
     <div class="panel">
-      <h2>User management</h2>
-      <p class="muted">Admin can add users, change their access role, or remove accounts. Editor can add and manage operational records; Viewer can only view.</p>
-      <form id="userForm">
-        <div class="field"><label for="userDisplayName">User name *</label><input id="userDisplayName" required maxlength="80" placeholder="Enter user's name"></div>
-        <div class="field"><label for="userLoginName">Username *</label><input id="userLoginName" required maxlength="40" autocomplete="off" placeholder="Choose a username"></div>
-        <div class="field"><label for="userPassword">Password *</label><input id="userPassword" required minlength="4" type="password" autocomplete="new-password" placeholder="Set password"></div>
-        <div class="field"><label for="userRole">Access role *</label><select id="userRole" required><option value="Editor">Editor — can add/edit data</option><option value="Viewer">Viewer — view only</option><option value="Admin">Admin — full access</option></select></div>
-        <button type="submit">＋ Add user</button>
+      <h2>Manage approved users</h2>
+      <p class="muted">Only an Admin can manage access. Each person must sign in with Google at least once; then add their Firebase UID below. This does not create a Google account.</p>
+      <form id="firebaseUserForm">
+        <div class="field"><label for="managedUserUid">Firebase UID *</label><input id="managedUserUid" required maxlength="128" autocomplete="off" placeholder="Paste the user's Firebase UID"></div>
+        <div class="field"><label for="managedUserEmail">Google email *</label><input id="managedUserEmail" required type="email" maxlength="254" placeholder="person@gmail.com"></div>
+        <div class="field"><label for="managedUserName">Display name</label><input id="managedUserName" maxlength="80" placeholder="Name shown in HRM"></div>
+        <div class="field"><label for="managedUserRole">Access role *</label><select id="managedUserRole" required><option value="Viewer">Viewer — view only</option><option value="Editor">Editor — add/edit HRM records</option><option value="Admin">Admin — full access and user management</option></select></div>
+        <div class="field"><label><input id="managedUserActive" type="checkbox" checked> Account active</label></div>
+        <button type="submit">＋ Save approved user</button>
+        <button type="button" class="secondary" id="clearManagedUserForm">Clear form</button>
       </form>
-      <h3>System users</h3><div id="userList" class="employee-list"></div>
+      <p class="muted">To find a UID, ask the user to sign in once and copy the UID displayed by the HRM approval message. Deactivating a user prevents future access checks; it does not delete their Google account.</p>
+      <h3>Approved users</h3><div id="firebaseUserList" class="employee-list"><p class="empty">Sign in as Admin to load approved users.</p></div>
     </div>
   </section>
   <div id="editEmployeeModal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="editEmployeeTitle">
@@ -384,15 +387,15 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
 
     $('currentRole').textContent=currentUser?`${currentUser.name} · ${currentUser.role}`:'Not signed in';
     const readonlyNote=$('readonlyNote'); if(readonlyNote) readonlyNote.classList.toggle('hidden',isAdmin());
-    const userTabButton=document.querySelector('.tabs button[data-tab="usersView"]'); if(userTabButton)userTabButton.classList.add('hidden');
+    const userTabButton=document.querySelector('.tabs button[data-tab="usersView"]'); if(userTabButton)userTabButton.classList.toggle('hidden',!isAdmin());
     const exportBtn=$('exportBtn'); if(exportBtn) exportBtn.classList.toggle('hidden',!isAdmin());
     const importBtn=$('importBtn'); if(importBtn) importBtn.classList.toggle('hidden',!isAdmin());
     document.querySelectorAll('.tabs button').forEach(b=>{
-      if(b.dataset.tab==='usersView' || (!canEditData() && ['leaveView','employeesView'].includes(b.dataset.tab)) || (!isAdmin() && ['leaveTypesView'].includes(b.dataset.tab))) b.classList.add('hidden');
+      if((b.dataset.tab==='usersView' && !isAdmin()) || (!canEditData() && ['leaveView','employeesView'].includes(b.dataset.tab)) || (!isAdmin() && ['leaveTypesView'].includes(b.dataset.tab))) b.classList.add('hidden');
       else b.classList.remove('hidden');
     });
     $('addForDate').classList.toggle('hidden',!canEditData());
-    renderEmployees();renderReports();renderCalendar();renderUsers();
+    renderEmployees();renderReports();renderCalendar();if(isAdmin())loadFirebaseUsers();
   }
   function login(user){
     currentUser=user;
@@ -457,6 +460,44 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
     catch(err){setLoginMessage('Google sign-in failed: '+(err.message||err),true);}
   });
   if(firebaseAuth){firebaseAuth.onAuthStateChanged(handleFirebaseUser);}
+  // Firebase-backed user management. Roles are stored in /access/{uid} and protected by RTDB rules.
+  let firebaseUsersCache = {};
+  async function loadFirebaseUsers(){
+    const list=$('firebaseUserList'); if(!list || !isAdmin() || !firebaseDb)return;
+    list.innerHTML='<p class="empty">Loading approved users…</p>';
+    try{
+      const snap=await firebaseDb.ref('access').once('value');
+      firebaseUsersCache=snap.val()||{};
+      const rows=Object.entries(firebaseUsersCache).map(([uid,u])=>({uid,...(u||{})})).sort((a,b)=>String(a.email||a.name||a.uid).localeCompare(String(b.email||b.name||b.uid)));
+      list.innerHTML=rows.length?rows.map(u=>`<div class="employee-row"><div class="employee-details"><strong>${esc(u.name||u.email||u.uid)}</strong><div class="muted">${esc(u.email||'No email')} · ${esc(u.role||'No role')} · ${u.active===true?'Active':'Inactive'}</div><div class="muted" style="overflow-wrap:anywhere">UID: ${esc(u.uid)}</div></div><div class="employee-actions"><button type="button" class="secondary small" data-edit-firebase-user="${esc(u.uid)}">Edit</button><button type="button" class="danger small" data-toggle-firebase-user="${esc(u.uid)}">${u.active===true?'Deactivate':'Activate'}</button></div></div>`).join(''):'<p class="empty">No approved users found. Add your first user using the form above.</p>';
+    }catch(err){list.innerHTML='<p class="empty">Could not load users: '+esc(err.message||err)+'. Check that your Rules allow Admin to read /access.</p>';}
+  }
+  function clearFirebaseUserForm(){ $('firebaseUserForm')?.reset(); $('managedUserUid').readOnly=false; $('managedUserActive').checked=true; }
+  $('clearManagedUserForm')?.addEventListener('click',clearFirebaseUserForm);
+  $('firebaseUserForm')?.addEventListener('submit',async e=>{
+    e.preventDefault(); if(!requireAdmin('manage approved users'))return;
+    const uid=$('managedUserUid').value.trim(), email=$('managedUserEmail').value.trim(), name=$('managedUserName').value.trim(), role=$('managedUserRole').value, active=$('managedUserActive').checked;
+    if(!uid || !email){notify('Firebase UID and Google email are required.',true);return;}
+    if(!['Admin','Editor','Viewer'].includes(role)){notify('Choose a valid role.',true);return;}
+    if(uid===firebaseUser?.uid && (!active || role!=='Admin')){notify('You cannot deactivate yourself or remove your own Admin role here.',true);return;}
+    try{
+      await firebaseDb.ref('access/'+uid).set({role,active,name:name||email,email});
+      notify('Approved user saved.'); clearFirebaseUserForm(); await loadFirebaseUsers();
+    }catch(err){notify('Could not save user: '+(err.message||err)+'. Check Firebase Rules.',true);}
+  });
+  $('firebaseUserList')?.addEventListener('click',async e=>{
+    const edit=e.target.closest('[data-edit-firebase-user]'); const toggle=e.target.closest('[data-toggle-firebase-user]');
+    if(!edit&&!toggle)return; if(!requireAdmin('manage approved users'))return;
+    const uid=(edit||toggle).dataset.editFirebaseUser||(edit||toggle).dataset.toggleFirebaseUser;
+    const u=firebaseUsersCache[uid]; if(!u)return;
+    if(edit){$('managedUserUid').value=uid;$('managedUserUid').readOnly=true;$('managedUserEmail').value=u.email||'';$('managedUserName').value=u.name||'';$('managedUserRole').value=u.role||'Viewer';$('managedUserActive').checked=u.active===true;$('firebaseUserForm').scrollIntoView({behavior:'smooth',block:'start'});return;}
+    const next=! (u.active===true);
+    if(uid===firebaseUser?.uid&&!next){notify('You cannot deactivate your own account while signed in.',true);return;}
+    if(!confirm(`${next?'Activate':'Deactivate'} access for ${u.email||uid}?`))return;
+    try{await firebaseDb.ref('access/'+uid).update({active:next});notify(`User ${next?'activated':'deactivated'}.`);await loadFirebaseUsers();}
+    catch(err){notify('Could not update user: '+(err.message||err)+'. Check Firebase Rules.',true);}
+  });
+
   function syncLoginRole(){
     const roleEl=document.getElementById('loginRole');
     const passwordField=document.getElementById('adminPasswordField');
@@ -593,7 +634,7 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
   $('logoutBtn').addEventListener('click',()=>{if(firebaseAuth)firebaseAuth.signOut().catch(err=>notify('Sign out failed: '+err.message,true));showSignedOut();});
 
   function notify(msg,error=false){const n=$('notice');n.textContent=msg;n.classList.remove('hidden','error');if(error)n.classList.add('error');window.scrollTo({top:0,behavior:'smooth'});setTimeout(()=>n.classList.add('hidden'),4500);}
-  function showTab(id){if(!canEditData()&&['leaveView','employeesView'].includes(id))id='calendarView';if(id==='usersView')id='calendarView';document.querySelectorAll('section[id$="View"]').forEach(s=>s.classList.toggle('hidden',s.id!==id));document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('active',b.dataset.tab===id));if(id==='calendarView')renderCalendar();}
+  function showTab(id){if(!canEditData()&&['leaveView','employeesView'].includes(id))id='calendarView';if(id==='usersView'&&!isAdmin())id='calendarView';document.querySelectorAll('section[id$="View"]').forEach(s=>s.classList.toggle('hidden',s.id!==id));document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('active',b.dataset.tab===id));if(id==='calendarView')renderCalendar();}
   document.querySelectorAll('.tabs button').forEach(b=>b.addEventListener('click',()=>showTab(b.dataset.tab)));
   $('employeeSummaryCard').addEventListener('click',()=>{
     if(!isAdmin()){notify('Admin access is required to manage employees.',true);return;}
