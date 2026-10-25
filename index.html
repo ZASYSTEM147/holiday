@@ -376,12 +376,23 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
   }
   updateDigitalClock();
   setInterval(updateDigitalClock,1000);
-  function persist(){
+  async function persist(options={}){
+    // Keep a local copy for recovery, but report success only after Firestore confirms the write.
     localStorage.setItem('holidayLeaveData',JSON.stringify(data));
-    if (!liveDataReady || !firebaseDb || !currentUser || !['Admin','Editor'].includes(currentUser.role)) return;
-    firebaseDb.collection('appData').doc('main').set(data)
-      .then(()=>notify('Saved to Cloud Firestore.'))
-      .catch(err=>notify('Could not save to Cloud Firestore: '+(err.message||err),true));
+    if (!liveDataReady || !firebaseDb || !currentUser || !['Admin','Editor'].includes(currentUser.role)) {
+      if (options.requireCloud) throw new Error('Cloud save is not ready. Please sign in with an approved Admin or Editor account and try again.');
+      return false;
+    }
+    try {
+      await firebaseDb.collection('appData').doc('main').set(data);
+      if (options.notify !== false) notify('Saved to Cloud Firestore.');
+      return true;
+    } catch(err) {
+      console.error('Firestore save failed:', err);
+      if (options.notify !== false) notify('Could not save to Cloud Firestore: '+(err.message||err)+'. Check Firestore Rules and your account role.',true);
+      if (options.requireCloud) throw err;
+      return false;
+    }
   }
   function isAdmin(){ return !!currentUser && currentUser.role==='Admin'; }
   function requireAdmin(action='make changes'){ if(!isAdmin()){notify('Admin access is required to '+action+'.',true);return false;}return true; }
@@ -489,12 +500,26 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
   $('clearManagedUserForm')?.addEventListener('click',clearFirebaseUserForm);
   $('firebaseUserForm')?.addEventListener('submit',async e=>{
     e.preventDefault(); if(!requireAdmin('manage approved users'))return;
-    const uid=$('managedUserUid').value.trim(), email=$('managedUserEmail').value.trim(), name=$('managedUserName').value.trim(), role=$('managedUserRole').value, active=$('managedUserActive').checked;
-    if(!uid || !email){notify('Firebase UID and Google email are required.',true);return;}
+    let uid=$('managedUserUid').value.trim();
+    const email=$('managedUserEmail').value.trim(), name=$('managedUserName').value.trim(), role=$('managedUserRole').value, active=$('managedUserActive').checked;
+    if(!email){notify('Please enter the user’s Google email.',true);return;}
     if(!['Admin','Editor','Viewer'].includes(role)){notify('Choose a valid role.',true);return;}
-    if(uid===firebaseUser?.uid && (!active || role!=='Admin')){notify('You cannot deactivate yourself or remove your own Admin role here.',true);return;}
     try{
-      await firebaseDb.collection('access').doc(uid).set({role,active,name:name||email,email});
+      // Let admins work by email: resolve the UID from an existing access request or approved profile.
+      if(!uid){
+        const wanted=email.toLowerCase();
+        const [requestsSnap, usersSnap]=await Promise.all([
+          firebaseDb.collection('accessRequests').get(),
+          firebaseDb.collection('access').get()
+        ]);
+        for(const doc of requestsSnap.docs){ if(String((doc.data()||{}).email||'').toLowerCase()===wanted){uid=doc.id;break;} }
+        if(!uid){ for(const doc of usersSnap.docs){ if(String((doc.data()||{}).email||'').toLowerCase()===wanted){uid=doc.id;break;} } }
+      }
+      if(!uid){
+        notify('This person has not signed in to the HRM yet. Ask them to choose Continue with Google once; then approve them from Access requests. No UID copying is needed.',true);return;
+      }
+      if(uid===firebaseUser?.uid && (!active || role!=='Admin')){notify('You cannot deactivate yourself or remove your own Admin role here.',true);return;}
+      await firebaseDb.collection('access').doc(uid).set({role,active,name:name||email,email},{merge:true});
       notify('Approved user saved.'); clearFirebaseUserForm(); await loadFirebaseUsers(); await loadFirebaseRequests();
     }catch(err){notify('Could not save user: '+(err.message||err)+'. Check Cloud Firestore Security Rules.',true);}
   });
@@ -1076,7 +1101,7 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
       persist();renderAll();notify(linkedLeaves.length?'Employee and linked leave applications deleted.':'Employee deleted.');
     }
   });
-  $('leaveForm').addEventListener('submit',e=>{
+  $('leaveForm').addEventListener('submit',async e=>{
     const reasonRequiredTypes=data.requiredReasonTypes||['MC','Emergency Leave','CSDS Leave'];
     const selectedLeaveType=$('leaveTypeSelect')?.value || '';
     const enteredReason=$('leaveReason').value.trim();
@@ -1089,16 +1114,26 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
     }
     $('leaveReason').setCustomValidity('');
 
-    e.preventDefault();if(!requireAdmin('save leave applications'))return;
+    e.preventDefault();if(!requireDataAccess('save leave applications'))return;
     const employeeId=$('leaveEmployee').value,emp=data.employees.find(x=>x.id===employeeId);
     const type=$('leaveTypeSelect').value,start=$('leaveStart').value,end=$('leaveEnd').value,reason=type==='Annual Leave'?'':$('leaveReason').value.trim();
     if(!emp){notify('Please select an employee.',true);return;}
     if(!start||!end||end<start){notify('Please choose a valid start and end date.',true);return;}
     if((data.requiredReasonTypes||['MC','Emergency Leave','CSDS Leave']).includes(type)&&!reason){notify('Please enter a reason for this leave type.',true);return;}
     const record={id:editingId||Date.now(),employeeId,name:emp.name,type,start,end,reason};
-    if(editingId!==null){data.leaves=data.leaves.map(l=>l.id===editingId?record:l);notify('Leave record updated.');}
-    else{data.leaves.push(record);notify('Leave application saved.');}
-    selectedDate=start;month=new Date(parseDate(start).getFullYear(),parseDate(start).getMonth(),1);persist();renderAll();resetLeaveForm();showTab('calendarView');
+    if(editingId!==null){data.leaves=data.leaves.map(l=>String(l.id)===String(editingId)?record:l);}
+    else{data.leaves.push(record);}
+    selectedDate=start;month=new Date(parseDate(start).getFullYear(),parseDate(start).getMonth(),1);
+    renderAll();
+    try {
+      const cloudSaved = await persist({requireCloud:true, notify:false});
+      if (!cloudSaved) throw new Error('Cloud save was not confirmed.');
+      notify(editingId!==null?'Leave record updated and saved to Firestore.':'Leave application saved to Firestore.');
+      resetLeaveForm();showTab('calendarView');
+    } catch(err) {
+      // Keep the form open so the user can retry; don't imply that the cloud save succeeded.
+      notify('Leave is visible in this browser but was NOT saved online: '+(err.message||err),true);
+    }
   });
   document.querySelectorAll('input[name="leaveType"]').forEach(r=>r.addEventListener('change',updateReason));
   ['leaveStart','leaveEnd'].forEach(id=>$(id).addEventListener('change',()=>{if(id==='leaveStart'&&$('leaveEnd').value&&$('leaveEnd').value<$('leaveStart').value)$('leaveEnd').value=$('leaveStart').value;updateDayCount();}));
