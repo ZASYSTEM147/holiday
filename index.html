@@ -136,11 +136,11 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
 </head>
 <body>
 <div id="loginOverlay" class="login-overlay"><div class="login-card">
-<h2>HRM Leave Management</h2><p class="muted">Choose your access role to continue.</p>
-<form id="loginForm"><div class="field"><label for="loginRole">User account</label><select id="loginRole" required></select></div>
-<div class="field" id="adminPasswordField"><label for="loginPassword">Admin password</label><input id="loginPassword" type="password" autocomplete="current-password" placeholder="Enter admin password"></div>
-<button type="submit" style="width:100%">Continue</button><div id="loginError" class="notice error hidden"></div></form>
-<p class="muted">Viewer access is read-only. Admin access requires a password.</p>
+<h2>HRM Leave Management</h2><p class="muted">Sign in with your account to continue.</p>
+<form id="loginForm"><div class="field"><label for="loginEmail">Email</label><input id="loginEmail" type="email" autocomplete="username" required placeholder="name@example.com"></div>
+<div class="field"><label for="loginPassword">Password</label><input id="loginPassword" type="password" autocomplete="current-password" required placeholder="Enter password"></div>
+<button type="submit" id="loginSubmit" style="width:100%">Sign in</button><div id="loginError" class="notice error hidden"></div></form>
+<p class="muted">Viewer accounts are read-only. Editors can manage data. Admins have full access.</p>
 </div></div>
 <div class="app">
   <header class="hero">
@@ -248,8 +248,8 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
       <p class="muted">Admin can add users, change their access role, or remove accounts. Editor can add and manage operational records; Viewer can only view.</p>
       <form id="userForm">
         <div class="field"><label for="userDisplayName">User name *</label><input id="userDisplayName" required maxlength="80" placeholder="Enter user's name"></div>
-        <div class="field"><label for="userLoginName">Username *</label><input id="userLoginName" required maxlength="40" autocomplete="off" placeholder="Choose a username"></div>
-        <div class="field"><label for="userPassword">Password *</label><input id="userPassword" required minlength="4" type="password" autocomplete="new-password" placeholder="Set password"></div>
+        <div class="field"><label for="userLoginName">Email *</label><input id="userLoginName" type="email" required maxlength="80" autocomplete="off" placeholder="name@example.com"></div>
+        <div class="field"><label for="userPassword">Password *</label><input id="userPassword" required minlength="6" type="password" autocomplete="new-password" placeholder="Set password"></div>
         <div class="field"><label for="userRole">Access role *</label><select id="userRole" required><option value="Editor">Editor — can add/edit data</option><option value="Viewer">Viewer — view only</option><option value="Admin">Admin — full access</option></select></div>
         <button type="submit">＋ Add user</button>
       </form>
@@ -292,6 +292,10 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
   </section>
   <p class="footer">Prototype: data is stored in this browser using local storage. Use “Export backup” to save a JSON copy. This is not a secure multi-user login or shared database; do not store sensitive information in this demo.</p>
 </div>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+<script src="firebase-config.js"></script>
 <script>
 (() => {
   const $ = id => document.getElementById(id);
@@ -303,21 +307,14 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
   const countDays = (s,e) => (!s||!e||e<s)?0:Math.round((parseDate(e)-parseDate(s))/86400000)+1;
   const dateLabel = s => s ? parseDate(s).toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'}) : '';
   let data = {employees:[],leaves:[],leaveTypes:['Annual Leave','Emergency Leave','CSDS Leave','Cuti Beranak','Mandatory','MC']};
-  try { const saved=JSON.parse(localStorage.getItem('holidayLeaveData')||'null'); if(saved&&Array.isArray(saved.employees)&&Array.isArray(saved.leaves)) data=saved; } catch {}
+  const uid=()=>Date.now()*1000+Math.floor(Math.random()*1000);
+  let legacyLocal=null; try { const saved=JSON.parse(localStorage.getItem('holidayLeaveData')||'null'); if(saved&&Array.isArray(saved.employees)&&Array.isArray(saved.leaves)) legacyLocal=saved; } catch {}
   let month = new Date(today.getFullYear(),today.getMonth(),1);
   let selectedDate = localISO(today);
   let editingId = null;
-  const DEMO_USERS = [{username:'admin',password:'admin',role:'Admin',name:'Administrator'},{username:'viewer',password:'',role:'Viewer',name:'View-only user'}];
   let currentUser = null;
-  const USERS_KEY='hrmSystemUsers';
   let systemUsers=[];
-  try{const savedUsers=JSON.parse(localStorage.getItem(USERS_KEY)||'null');if(Array.isArray(savedUsers))systemUsers=savedUsers;}catch{}
-  const defaultSystemUsers=[
-    {id:'builtin-admin',username:'admin',name:'Administrator',password:'admin',role:'Admin',builtIn:true},
-    {id:'builtin-viewer',username:'viewer',name:'View-only user',password:'',role:'Viewer',builtIn:true}
-  ];
-  if(!systemUsers.length)systemUsers=defaultSystemUsers.slice();
-  function saveSystemUsers(){localStorage.setItem(USERS_KEY,JSON.stringify(systemUsers));}
+  function saveSystemUsers(){}
   function canEditData(){return !!currentUser&&['Admin','Editor'].includes(currentUser.role);}
   function requireDataAccess(action='change data'){if(!canEditData()){notify('Viewer access is read-only. Sign in as Editor or Admin to '+action+'.',true);return false;}return true;}
 
@@ -351,7 +348,7 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
   }
   updateDigitalClock();
   setInterval(updateDigitalClock,1000);
-  function persist(){ localStorage.setItem('holidayLeaveData',JSON.stringify(data)); }
+  function persist(){ cloudSave(); }
   function isAdmin(){ return !!currentUser && currentUser.role==='Admin'; }
   function requireAdmin(action='make changes'){ if(!isAdmin()){notify('Admin access is required to '+action+'.',true);return false;}return true; }
   function updateAccessUI(){
@@ -369,20 +366,6 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
     renderEmployees();renderReports();renderCalendar();renderUsers();
   }
   function login(user){currentUser=user;$('loginOverlay').classList.add('hidden');updateAccessUI();showTab('calendarView');const incoming=upcomingLeaveRecords();if(incoming.length){notify(`🔔 Incoming leave: ${incoming.length} leave application(s) start within the next 7 days. Check the calendar for details.`);}else{notify(`Signed in as ${user.role}.`);}}
-  function syncLoginRole(){
-    const roleEl=document.getElementById('loginRole');
-    const passwordField=document.getElementById('adminPasswordField');
-    const passwordEl=document.getElementById('loginPassword');
-    const errorEl=document.getElementById('loginError');
-    const selected=systemUsers.find(u=>u.username===roleEl?.value);
-    const needsPassword=!!selected && (selected.role==='Admin'||selected.role==='Editor'||!!selected.password);
-    if(passwordField) passwordField.classList.toggle('hidden',!needsPassword);
-    if(passwordEl){passwordEl.required=needsPassword;if(!needsPassword)passwordEl.value='';}
-    if(errorEl) errorEl.classList.add('hidden');
-  }
-  $('loginRole').addEventListener('change',syncLoginRole);
-  renderLoginUsers();
-  syncLoginRole();
   $('leaveReason').addEventListener('input',()=> $('leaveReason').setCustomValidity(''));
   $('leaveForm').addEventListener('reset',()=>setTimeout(applyLeaveReasonDefault,0));
   function applyLeaveReasonDefault(){
@@ -475,26 +458,115 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
     data.leaveTypes.push(name);activeCalendarTypes.add(name);persist();$('newLeaveType').value='';
     renderLeaveTypeOptions();renderAll();notify('Leave type added.');
   });
-  function renderLoginUsers(){
-    const roleEl=$('loginRole');
-    if(!roleEl)return;
-    const chosen=roleEl.value;
-    roleEl.innerHTML=systemUsers.map(u=>`<option value="${esc(u.username)}">${esc(u.name)} · ${esc(u.role)}</option>`).join('');
-    if(systemUsers.some(u=>u.username===chosen))roleEl.value=chosen;
-    syncLoginRole();
+  // ===== Firebase (Auth + Firestore) =====
+  const FB_CFG = window.FIREBASE_CONFIG;
+  const fbConfigured = !!(FB_CFG && FB_CFG.apiKey && !/PASTE|YOUR/i.test(FB_CFG.apiKey) && window.firebase);
+  let fbAuth=null, fbDb=null, fbSecondary=null, docRef=null, unsubSnap=null, unsubAccess=null, lastJson='', firstSnap=true;
+  const knownTypes = new Set(allCalendarTypes);
+  const loginError = msg => { const el=$('loginError'); delete el.dataset.enText; el.textContent=msg||''; el.classList.toggle('hidden',!msg); };
+  function normalizeData(d){
+    d = d && typeof d==='object' ? d : {};
+    if(!Array.isArray(d.employees)) d.employees=[];
+    d.leaves=(Array.isArray(d.leaves)?d.leaves:[]).map(l=>{
+      const employee=d.employees.find(e=>String(e.id)===String(l.employeeId||l.staffId||'')) ||
+        d.employees.find(e=>e.name===String(l.name||l.employeeName||l.staffName||''));
+      return {...l,
+        id:l.id??uid(),
+        employeeId:l.employeeId??l.staffId??employee?.id??'',
+        name:String(l.name||l.employeeName||l.staffName||employee?.name||''),
+        type:String(l.type||l.leaveType||l.category||'Annual Leave'),
+        start:String(l.start||l.startDate||l.fromDate||l.dateFrom||'').slice(0,10),
+        end:String(l.end||l.endDate||l.toDate||l.dateTo||l.start||l.startDate||l.fromDate||l.dateFrom||'').slice(0,10),
+        reason:String(l.reason||l.remarks||'')
+      };
+    });
+    if(!Array.isArray(d.requiredReasonTypes)) d.requiredReasonTypes=['MC','Emergency Leave','CSDS Leave'];
+    if(!d.leaveTypeColors || typeof d.leaveTypeColors!=='object') d.leaveTypeColors={};
+    d.leaveTypes=[...new Set([...defaultLeaveTypes,...(Array.isArray(d.leaveTypes)?d.leaveTypes:[])])];
+    return d;
   }
-  $('loginForm').addEventListener('submit',function(e){
-    e.preventDefault();
-    const username=$('loginRole').value;
-    const password=$('loginPassword').value;
-    const user=systemUsers.find(u=>u.username===username);
-    if(!user || user.password!==password){
-      $('loginError').textContent='Incorrect username or password.';
-      $('loginError').classList.remove('hidden');
-      $('loginPassword').focus();return;
+  function applyCloud(obj){
+    data = normalizeData(obj);
+    lastJson = JSON.stringify(data);
+    data.leaveTypes.forEach(t=>{ if(!knownTypes.has(t)){ knownTypes.add(t); activeCalendarTypes.add(t); } });
+    [...activeCalendarTypes].forEach(t=>{ if(!data.leaveTypes.includes(t)) activeCalendarTypes.delete(t); });
+    renderAll();
+  }
+  function cloudSave(){
+    if(!docRef || !canEditData()) return;
+    const json = JSON.stringify(data);
+    lastJson = json;
+    docRef.set({json, updatedAt: firebase.firestore.FieldValue.serverTimestamp(), updatedBy: currentUser.username})
+      .catch(err => notify('Could not save to Firebase: '+(err.code||err.message), true));
+  }
+  function startSync(user){
+    firstSnap = true;
+    currentUser = user;
+    unsubSnap = docRef.onSnapshot(snap => {
+      if(snap.metadata.hasPendingWrites) return;
+      if(snap.exists){
+        const json = snap.data().json;
+        if(!firstSnap && json===lastJson) return;
+        try{ applyCloud(JSON.parse(json)); }catch(e){ notify('Cloud data could not be read.', true); }
+      } else if(user.role==='Admin'){
+        applyCloud(legacyLocal || {});
+        cloudSave();
+        if(legacyLocal){ try{ localStorage.removeItem('holidayLeaveData'); }catch{} }
+      } else {
+        applyCloud({});
+      }
+      if(firstSnap){ firstSnap=false; login(user); }
+    }, err => { loginError('Cannot read data: '+(err.code||err.message)); fbAuth.signOut(); });
+    if(user.role==='Admin'){
+      unsubAccess = fbDb.collection('access').onSnapshot(qs => {
+        systemUsers = qs.docs.map(d=>({id:d.id, username:d.id, name:d.data().name||d.id, role:d.data().role||'Viewer', builtIn:false}))
+          .sort((a,b)=>a.username.localeCompare(b.username));
+        renderUsers();
+      }, err => notify('Cannot read user list: '+(err.code||err.message), true));
     }
-    $('loginError').classList.add('hidden');
-    login({username:user.username,password:user.password,role:user.role,name:user.name});
+  }
+  function friendlyAuthError(err){
+    const c = err && err.code || '';
+    if(/invalid-credential|invalid-login|wrong-password|user-not-found|invalid-email/.test(c)) return 'Incorrect email or password.';
+    if(c==='auth/too-many-requests') return 'Too many attempts. Please wait a few minutes and try again.';
+    if(c==='auth/network-request-failed') return 'Network error. Check your connection.';
+    return 'Sign-in failed: '+(c||err.message);
+  }
+  if(!fbConfigured){
+    loginError('Firebase is not configured yet. Edit firebase-config.js and paste your project settings.');
+    $('loginSubmit').disabled = true;
+  } else {
+    firebase.initializeApp(FB_CFG);
+    fbAuth = firebase.auth();
+    fbDb = firebase.firestore();
+    docRef = fbDb.collection('holiday').doc('main');
+    fbAuth.onAuthStateChanged(async fbUser => {
+      if(unsubSnap){ unsubSnap(); unsubSnap=null; }
+      if(unsubAccess){ unsubAccess(); unsubAccess=null; }
+      if(!fbUser){
+        currentUser=null; systemUsers=[]; data=normalizeData({}); $('loginPassword').value='';
+        try{ renderAll(); renderUsers(); }catch{}
+        $('loginOverlay').classList.remove('hidden'); $('currentRole').textContent='Not signed in';
+        return;
+      }
+      try{
+        const email = (fbUser.email||'').toLowerCase();
+        const acc = await fbDb.collection('access').doc(email).get();
+        if(!acc.exists){ loginError('This account has no access. Please ask the administrator.'); await fbAuth.signOut(); return; }
+        const r = String(acc.data().role||'').toLowerCase();
+        const role = r==='admin' ? 'Admin' : r==='editor' ? 'Editor' : 'Viewer';
+        loginError('');
+        startSync({username:email, role, name:acc.data().name||email});
+      }catch(err){ loginError('Could not verify access: '+(err.code||err.message)); await fbAuth.signOut(); }
+    });
+  }
+  $('loginForm').addEventListener('submit', async e => {
+    e.preventDefault(); loginError('');
+    if(!fbAuth) return;
+    const btn=$('loginSubmit'); btn.disabled=true;
+    try{ await fbAuth.signInWithEmailAndPassword($('loginEmail').value.trim(), $('loginPassword').value); }
+    catch(err){ loginError(friendlyAuthError(err)); }
+    btn.disabled=false;
   });
 
   // Touch-friendly month navigation: swipe horizontally across the calendar grid.
@@ -516,7 +588,7 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
       touchStartX=null; touchStartY=null;
     },{passive:true});
   }
-  $('logoutBtn').addEventListener('click',()=>{currentUser=null;$('loginPassword').value='';$('loginRole').value='Viewer';syncLoginRole();$('loginOverlay').classList.remove('hidden');$('currentRole').textContent='Not signed in';});
+  $('logoutBtn').addEventListener('click',()=>{ if(fbAuth) fbAuth.signOut(); });
 
   function notify(msg,error=false){const n=$('notice');n.textContent=msg;n.classList.remove('hidden','error');if(error)n.classList.add('error');window.scrollTo({top:0,behavior:'smooth'});setTimeout(()=>n.classList.add('hidden'),4500);}
   function showTab(id){if(!isAdmin()&&['leaveView','employeesView'].includes(id))id='calendarView';document.querySelectorAll('section[id$="View"]').forEach(s=>s.classList.toggle('hidden',s.id!==id));document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('active',b.dataset.tab===id));if(id==='calendarView')renderCalendar();}
@@ -831,32 +903,54 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
     const list=$('userList');if(!list)return;
     list.innerHTML=systemUsers.map(u=>`<div class="employee-row"><div class="employee-details"><strong>${esc(u.name)}</strong><div class="muted">@${esc(u.username)} · ${esc(u.role)}${u.builtIn?' · built-in account':''}</div></div><div class="employee-actions"><button type="button" class="secondary small" data-change-user="${esc(u.id)}">Change role/password</button><button type="button" class="danger small" data-delete-user="${esc(u.id)}" ${u.builtIn?'disabled':''}>Delete user</button></div></div>`).join('');
   }
-  $('userForm').addEventListener('submit',e=>{
-    e.preventDefault();if(!requireAdmin('add users'))return;
-    const name=$('userDisplayName').value.trim(),username=$('userLoginName').value.trim(),password=$('userPassword').value,role=$('userRole').value;
-    if(systemUsers.some(u=>u.username.toLowerCase()===username.toLowerCase())){notify('That username already exists.',true);return;}
-    systemUsers.push({id:uid(),name,username,password,role,builtIn:false});saveSystemUsers();renderUsers();renderLoginUsers();$('userForm').reset();notify('User added.');
+  $('userForm').addEventListener('submit', async e=>{
+    e.preventDefault(); if(!requireAdmin('add users')||!fbDb) return;
+    const name=$('userDisplayName').value.trim(), email=$('userLoginName').value.trim().toLowerCase(), password=$('userPassword').value, role=$('userRole').value;
+    if(systemUsers.some(u=>u.username===email)){ notify('That email already has access.',true); return; }
+    const btn=e.submitter||$('userForm').querySelector('button[type=submit]'); if(btn) btn.disabled=true;
+    let note='User added.';
+    try{
+      // Create the login on a second Firebase app instance so the admin stays signed in.
+      if(!fbSecondary) fbSecondary = firebase.initializeApp(FB_CFG,'secondary');
+      try{
+        await fbSecondary.auth().createUserWithEmailAndPassword(email,password);
+        await fbSecondary.auth().signOut();
+      }catch(err){
+        if(err.code==='auth/email-already-in-use') note='This email already had a login, so access was granted (password unchanged).';
+        else throw err;
+      }
+      await fbDb.collection('access').doc(email).set({name,role});
+      $('userForm').reset(); notify(note);
+    }catch(err){
+      notify('Could not add user: '+(err.code==='auth/weak-password'?'password must be at least 6 characters.':err.code==='auth/operation-not-allowed'?'enable Email/Password sign-in in Firebase.':(err.code||err.message)),true);
+    }
+    if(btn) btn.disabled=false;
   });
-  $('userList').addEventListener('click',e=>{
-    if(!requireAdmin('manage users'))return;
+  $('userList').addEventListener('click', async e=>{
+    if(!requireAdmin('manage users')||!fbDb) return;
     const change=e.target.closest('[data-change-user]');
     const del=e.target.closest('[data-delete-user]');
-    const user=systemUsers.find(u=>u.id===(change||del)?.dataset.changeUser || u.id===(change||del)?.dataset.deleteUser);
-    if(!user)return;
-    if(change){
-      const role=prompt('Access role: Admin, Editor, or Viewer',user.role);if(role===null)return;
-      const normalized=role.trim().toLowerCase();
-      const roleMap={admin:'Admin',editor:'Editor',viewer:'Viewer'};
-      if(!roleMap[normalized]){notify('Role must be Admin, Editor, or Viewer.',true);return;}
-      const password=prompt('New password (leave blank to keep current password):','');
-      if(password===null)return;
-      user.role=roleMap[normalized];if(password)user.password=password;
-      saveSystemUsers();renderUsers();renderLoginUsers();notify('User updated.');
-    }else if(del){
-      if(user.builtIn){notify('Built-in accounts cannot be deleted.',true);return;}
-      if(currentUser.username===user.username){notify('You cannot delete the account currently signed in.',true);return;}
-      if(confirm(`Delete user ${user.username}?`)){systemUsers=systemUsers.filter(u=>u.id!==user.id);saveSystemUsers();renderUsers();renderLoginUsers();notify('User deleted.');}
-    }
+    const key=(change||del)?.dataset.changeUser||(change||del)?.dataset.deleteUser;
+    const user=systemUsers.find(u=>u.id===key);
+    if(!user) return;
+    try{
+      if(change){
+        const role=prompt('Access role: Admin, Editor, or Viewer',user.role); if(role===null) return;
+        const roleMap={admin:'Admin',editor:'Editor',viewer:'Viewer'};
+        const r=roleMap[role.trim().toLowerCase()];
+        if(!r){ notify('Role must be Admin, Editor, or Viewer.',true); return; }
+        if(user.username===currentUser.username && r!=='Admin' && !confirm('You are changing your own role. You will lose admin access. Continue?')) return;
+        await fbDb.collection('access').doc(user.id).update({role:r});
+        if(confirm(`Role updated. Also send a password-reset email to ${user.username}?`)){
+          await fbAuth.sendPasswordResetEmail(user.username); notify('Role updated and password-reset email sent.');
+        } else notify('Role updated.');
+      }else if(del){
+        if(currentUser.username===user.username){ notify('You cannot remove the account currently signed in.',true); return; }
+        if(confirm(`Remove access for ${user.username}? (Their login stays in Firebase Authentication but cannot open this system.)`)){
+          await fbDb.collection('access').doc(user.id).delete(); notify('User access removed.');
+        }
+      }
+    }catch(err){ notify('Action failed: '+(err.code||err.message),true); }
   });
   function renderAll(){renderLeaveTypeOptions();renderStats();renderEmployees();renderReports();renderCalendar();if(typeof applyLanguage==='function')applyLanguage();}
   function updateReason(){
@@ -1213,14 +1307,15 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
       if(!employees.length&&!leaves.length){notify('No supported rows found. Use CSV UTF-8 exported by HRM, or columns Name/Position/IC Number/File Number and Employee Name/Leave Type/Start Date/End Date.',true);return;}
       if(!confirm(`Import ${employees.length} employee(s) and ${leaves.length} leave record(s)? This replaces current browser data.`))return;
       const types=[...new Set([...defaultLeaveTypes,...(Array.isArray(importedTypes)?importedTypes:[]),...leaves.map(l=>l.type)])];
-      data={...data,employees,leaves,leaveTypes:types,
+      data=normalizeData({...data,employees,leaves,leaveTypes:types,
         leaveTypeColors:importedColors&&typeof importedColors==='object'&&!Array.isArray(importedColors)?importedColors:(data.leaveTypeColors||{}),
-        requiredReasonTypes:data.requiredReasonTypes||['MC','Emergency Leave','CSDS Leave']};
+        requiredReasonTypes:data.requiredReasonTypes||['MC','Emergency Leave','CSDS Leave']});
+      types.forEach(t=>knownTypes.add(t));
       persist();activeCalendarTypes.clear();types.forEach(t=>activeCalendarTypes.add(t));renderAll();
       if(typeof applyLanguage==='function')applyLanguage();
       if(typeof updateAccessUI==='function')updateAccessUI();
       notify(`Excel/CSV imported: ${employees.length} employee(s), ${leaves.length} leave record(s).`);
-    }catch(err){console.error('CSV import error:',err);notify('Could not import CSV. In Excel, use Save As → CSV UTF-8 (Comma delimited) and try again.',true);}
+    }catch(err){console.error('CSV import error:',err);notify('Could not import CSV ('+(err&&err.message||err)+'). In Excel, use Save As → CSV UTF-8 (Comma delimited) and try again.',true);}
   });
   if($('exportBtn')) $('exportBtn').addEventListener('click',()=>{
     if(!requireAdmin('export data'))return;
