@@ -383,10 +383,10 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
     document.querySelectorAll('.employee-actions').forEach(el=>el.classList.toggle('hidden',!canEditData()));
 
     $('currentRole').textContent=currentUser?`${currentUser.name} · ${currentUser.role}`:'Not signed in';
-    $('readonlyNote').classList.toggle('hidden',isAdmin());
+    const readonlyNote=$('readonlyNote'); if(readonlyNote) readonlyNote.classList.toggle('hidden',isAdmin());
     const userTabButton=document.querySelector('.tabs button[data-tab="usersView"]'); if(userTabButton)userTabButton.classList.add('hidden');
-    $('exportBtn').classList.toggle('hidden',!isAdmin());
-    $('importBtn').classList.toggle('hidden',!isAdmin());
+    const exportBtn=$('exportBtn'); if(exportBtn) exportBtn.classList.toggle('hidden',!isAdmin());
+    const importBtn=$('importBtn'); if(importBtn) importBtn.classList.toggle('hidden',!isAdmin());
     document.querySelectorAll('.tabs button').forEach(b=>{
       if(b.dataset.tab==='usersView' || (!canEditData() && ['leaveView','employeesView'].includes(b.dataset.tab)) || (!isAdmin() && ['leaveTypesView'].includes(b.dataset.tab))) b.classList.add('hidden');
       else b.classList.remove('hidden');
