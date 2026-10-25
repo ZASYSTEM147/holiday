@@ -245,9 +245,9 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
   <section id="usersView" class="hidden">
     <div class="panel">
       <h2>Manage approved users</h2>
-      <p class="muted">Only an Admin can manage access. Each person must sign in with Google at least once; then add their Firebase UID below. This does not create a Google account.</p>
+      <p class="muted">Only an Admin can manage access. Users sign in with Google first; their request will appear below. You can approve them with one click—no need to copy Firebase UIDs.</p>
       <form id="firebaseUserForm">
-        <div class="field"><label for="managedUserUid">Firebase UID *</label><input id="managedUserUid" required maxlength="128" autocomplete="off" placeholder="Paste the user's Firebase UID"></div>
+        <input id="managedUserUid" type="hidden">
         <div class="field"><label for="managedUserEmail">Google email *</label><input id="managedUserEmail" required type="email" maxlength="254" placeholder="person@gmail.com"></div>
         <div class="field"><label for="managedUserName">Display name</label><input id="managedUserName" maxlength="80" placeholder="Name shown in HRM"></div>
         <div class="field"><label for="managedUserRole">Access role *</label><select id="managedUserRole" required><option value="Viewer">Viewer — view only</option><option value="Editor">Editor — add/edit HRM records</option><option value="Admin">Admin — full access and user management</option></select></div>
@@ -255,7 +255,8 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
         <button type="submit">＋ Save approved user</button>
         <button type="button" class="secondary" id="clearManagedUserForm">Clear form</button>
       </form>
-      <p class="muted">To find a UID, ask the user to sign in once and copy the UID displayed by the HRM approval message. Deactivating a user prevents future access checks; it does not delete their Google account.</p>
+      <p class="muted">Approve requests below, then use the approved-users list to change roles or deactivate access. This does not create a Google account.</p>
+      <h3>Access requests</h3><div id="firebaseRequestList" class="employee-list"><p class="empty">Sign in as Admin to load access requests.</p></div>
       <h3>Approved users</h3><div id="firebaseUserList" class="employee-list"><p class="empty">Sign in as Admin to load approved users.</p></div>
     </div>
   </section>
@@ -293,11 +294,11 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
       <div id="recordList"></div>
     </div>
   </section>
-  <p class="footer">Connected to Firebase Realtime Database with Google sign-in. Access is controlled by Firebase Security Rules; configure approved roles before storing real employee information. Export backups securely.</p>
+  <p class="footer">Connected to Cloud Firestore with Google sign-in. Changes are saved to the database when you save records; data is not live-synced. Configure Firestore Security Rules before storing real employee information.</p>
 </div>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
 <script>
 (() => {
   const firebaseConfig = {
@@ -310,12 +311,12 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
     appId: "1:1028691442297:web:e02d038d1da6bbc38af2a8",
     measurementId: "G-SE7FJN62DY"
   };
-  let firebaseApp, firebaseAuth, firebaseDb, liveDataRef, liveDataListener = null, liveDataReady = false;
+  let firebaseApp, firebaseAuth, firebaseDb, liveDataReady = false;
   let firebaseUser = null;
   try {
     firebaseApp = firebase.initializeApp(firebaseConfig);
     firebaseAuth = firebase.auth();
-    firebaseDb = firebase.database();
+    firebaseDb = firebase.firestore();
     firebaseAuth.useDeviceLanguage();
   } catch (err) { console.error('Firebase initialization failed', err); }
   const $ = id => document.getElementById(id);
@@ -377,8 +378,10 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
   setInterval(updateDigitalClock,1000);
   function persist(){
     localStorage.setItem('holidayLeaveData',JSON.stringify(data));
-    if (!liveDataReady || !liveDataRef || !currentUser || !['Admin','Editor'].includes(currentUser.role)) return;
-    liveDataRef.set(data).catch(err=>notify('Could not save to Firebase: '+(err.message||err),true));
+    if (!liveDataReady || !firebaseDb || !currentUser || !['Admin','Editor'].includes(currentUser.role)) return;
+    firebaseDb.collection('appData').doc('main').set(data)
+      .then(()=>notify('Saved to Cloud Firestore.'))
+      .catch(err=>notify('Could not save to Cloud Firestore: '+(err.message||err),true));
   }
   function isAdmin(){ return !!currentUser && currentUser.role==='Admin'; }
   function requireAdmin(action='make changes'){ if(!isAdmin()){notify('Admin access is required to '+action+'.',true);return false;}return true; }
@@ -395,7 +398,7 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
       else b.classList.remove('hidden');
     });
     $('addForDate').classList.toggle('hidden',!canEditData());
-    renderEmployees();renderReports();renderCalendar();if(isAdmin())loadFirebaseUsers();
+    renderEmployees();renderReports();renderCalendar();if(isAdmin()){loadFirebaseUsers();loadFirebaseRequests();}
   }
   function login(user){
     currentUser=user;
@@ -411,8 +414,6 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
   }
   function showSignedOut(message='Please sign in with an approved Google account.'){
     currentUser=null; liveDataReady=false;
-    if(liveDataRef && liveDataListener){liveDataRef.off('value',liveDataListener);}
-    liveDataRef=null; liveDataListener=null;
     $('loginOverlay').classList.remove('hidden');
     $('currentRole').textContent='Not signed in';
     $('firebaseLoginStatus').textContent=message;
@@ -422,36 +423,38 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
     firebaseUser=user;
     $('firebaseLoginStatus').textContent='Checking account approval…';
     try{
-      const snap=await firebaseDb.ref('access/'+user.uid).once('value');
-      const profile=snap.val();
+      const profileSnap=await firebaseDb.collection('access').doc(user.uid).get();
+      const profile=profileSnap.exists?profileSnap.data():null;
       if(!profile || profile.active!==true || !['Admin','Editor','Viewer'].includes(profile.role)){
-        showSignedOut('This Google account is not approved yet. Ask the HRM administrator to add your UID to Realtime Database → Data → access. UID: '+user.uid+' | Email: '+(user.email||'unknown'));
-        setLoginMessage('Access not approved. No HRM records were loaded.',true); return;
+        try {
+          await firebaseDb.collection('accessRequests').doc(user.uid).set({
+            email:user.email||'', name:user.displayName||user.email||'Google user',
+            requestedAt:firebase.firestore.FieldValue.serverTimestamp()
+          },{merge:true});
+        } catch(requestErr) { console.warn('Could not submit access request', requestErr); }
+        showSignedOut('Your access request has been submitted. Ask the HRM administrator to open User management and approve your request. Email: '+(user.email||'unknown'));
+        setLoginMessage('Access request submitted. No HRM records were loaded.',true); return;
       }
       currentUser={uid:user.uid,email:user.email||'',name:profile.name||user.displayName||user.email||'User',role:profile.role};
-      liveDataRef=firebaseDb.ref('hrmData');
-      liveDataReady=false;
-      liveDataListener=snap=>{
-        const remote=snap.val();
-        if(remote && Array.isArray(remote.employees) && Array.isArray(remote.leaves)){
-          data=remote;
-          if(!Array.isArray(data.leaveTypes))data.leaveTypes=[...defaultLeaveTypes];
-          if(!Array.isArray(data.requiredReasonTypes))data.requiredReasonTypes=['MC','Emergency Leave','CSDS Leave'];
-          if(!data.leaveTypeColors || typeof data.leaveTypeColors!=='object')data.leaveTypeColors={};
-          localStorage.setItem('holidayLeaveData',JSON.stringify(data));
-        } else if(currentUser.role==='Admin' || currentUser.role==='Editor') {
-          // Seed the shared node only if it is empty. The server rules still enforce write access.
-          liveDataRef.set(data).catch(err=>notify('Firebase initial save failed: '+err.message,true));
-        } else {
-          data={employees:[],leaves:[],leaveTypes:[...defaultLeaveTypes],requiredReasonTypes:['MC','Emergency Leave','CSDS Leave'],leaveTypeColors:{}};
-        }
-        liveDataReady=true; renderAll(); updateAccessUI();
-      };
-      liveDataRef.on('value',liveDataListener,err=>{liveDataReady=false;showSignedOut('Firebase data access failed: '+err.message+'. Check the Realtime Database rules and account role.');});
+      const dataSnap=await firebaseDb.collection('appData').doc('main').get();
+      if(dataSnap.exists){
+        const remote=dataSnap.data();
+        if(remote && Array.isArray(remote.employees) && Array.isArray(remote.leaves)) data=remote;
+      } else if(['Admin','Editor'].includes(currentUser.role)){
+        await firebaseDb.collection('appData').doc('main').set(data);
+      } else {
+        data={employees:[],leaves:[],leaveTypes:[...defaultLeaveTypes],requiredReasonTypes:['MC','Emergency Leave','CSDS Leave'],leaveTypeColors:{}};
+      }
+      if(!Array.isArray(data.leaveTypes))data.leaveTypes=[...defaultLeaveTypes];
+      if(!Array.isArray(data.requiredReasonTypes))data.requiredReasonTypes=['MC','Emergency Leave','CSDS Leave'];
+      if(!data.leaveTypeColors || typeof data.leaveTypeColors!=='object')data.leaveTypeColors={};
+      localStorage.setItem('holidayLeaveData',JSON.stringify(data));
+      liveDataReady=true;
       $('loginOverlay').classList.add('hidden');
       $('currentRole').textContent=currentUser.name+' · '+currentUser.role;
       $('readonlyNote').classList.toggle('hidden',currentUser.role==='Admin');
-      updateAccessUI();
+      renderAll(); updateAccessUI();
+      notify('Signed in as '+currentUser.role+'. Changes are saved to Cloud Firestore when you save records.');
     }catch(err){showSignedOut('Could not verify account access: '+(err.message||err));setLoginMessage(err.message||String(err),true);}
   }
   $('googleLoginBtn').addEventListener('click',async()=>{
@@ -462,12 +465,22 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
   if(firebaseAuth){firebaseAuth.onAuthStateChanged(handleFirebaseUser);}
   // Firebase-backed user management. Roles are stored in /access/{uid} and protected by RTDB rules.
   let firebaseUsersCache = {};
+  async function loadFirebaseRequests(){
+    const list=$('firebaseRequestList'); if(!list || !isAdmin() || !firebaseDb)return;
+    list.innerHTML='<p class="empty">Loading access requests…</p>';
+    try{
+      const snap=await firebaseDb.collection('accessRequests').get();
+      const requests={}; snap.forEach(doc=>requests[doc.id]=doc.data());
+      const rows=Object.entries(requests).map(([uid,r])=>({uid,...(r||{})})).filter(r=>!firebaseUsersCache[r.uid] || firebaseUsersCache[r.uid].active!==true).sort((a,b)=>String(a.email).localeCompare(String(b.email)));
+      list.innerHTML=rows.length?rows.map(r=>`<div class="employee-row"><div class="employee-details"><strong>${esc(r.name||r.email||'Google user')}</strong><div class="muted">${esc(r.email||'No email')} · Awaiting approval</div></div><div class="employee-actions"><button type="button" class="small" data-approve-request="${esc(r.uid)}">Approve</button></div></div>`).join(''):'<p class="empty">No pending access requests. Ask the person to sign in with Google once first.</p>';
+    }catch(err){list.innerHTML='<p class="empty">Could not load requests: '+esc(err.message||err)+'. Check Cloud Firestore Security Rules.</p>';}
+  }
   async function loadFirebaseUsers(){
     const list=$('firebaseUserList'); if(!list || !isAdmin() || !firebaseDb)return;
     list.innerHTML='<p class="empty">Loading approved users…</p>';
     try{
-      const snap=await firebaseDb.ref('access').once('value');
-      firebaseUsersCache=snap.val()||{};
+      const snap=await firebaseDb.collection('access').get();
+      firebaseUsersCache={}; snap.forEach(doc=>firebaseUsersCache[doc.id]=doc.data());
       const rows=Object.entries(firebaseUsersCache).map(([uid,u])=>({uid,...(u||{})})).sort((a,b)=>String(a.email||a.name||a.uid).localeCompare(String(b.email||b.name||b.uid)));
       list.innerHTML=rows.length?rows.map(u=>`<div class="employee-row"><div class="employee-details"><strong>${esc(u.name||u.email||u.uid)}</strong><div class="muted">${esc(u.email||'No email')} · ${esc(u.role||'No role')} · ${u.active===true?'Active':'Inactive'}</div><div class="muted" style="overflow-wrap:anywhere">UID: ${esc(u.uid)}</div></div><div class="employee-actions"><button type="button" class="secondary small" data-edit-firebase-user="${esc(u.uid)}">Edit</button><button type="button" class="danger small" data-toggle-firebase-user="${esc(u.uid)}">${u.active===true?'Deactivate':'Activate'}</button></div></div>`).join(''):'<p class="empty">No approved users found. Add your first user using the form above.</p>';
     }catch(err){list.innerHTML='<p class="empty">Could not load users: '+esc(err.message||err)+'. Check that your Rules allow Admin to read /access.</p>';}
@@ -481,9 +494,20 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
     if(!['Admin','Editor','Viewer'].includes(role)){notify('Choose a valid role.',true);return;}
     if(uid===firebaseUser?.uid && (!active || role!=='Admin')){notify('You cannot deactivate yourself or remove your own Admin role here.',true);return;}
     try{
-      await firebaseDb.ref('access/'+uid).set({role,active,name:name||email,email});
-      notify('Approved user saved.'); clearFirebaseUserForm(); await loadFirebaseUsers();
-    }catch(err){notify('Could not save user: '+(err.message||err)+'. Check Firebase Rules.',true);}
+      await firebaseDb.collection('access').doc(uid).set({role,active,name:name||email,email});
+      notify('Approved user saved.'); clearFirebaseUserForm(); await loadFirebaseUsers(); await loadFirebaseRequests();
+    }catch(err){notify('Could not save user: '+(err.message||err)+'. Check Cloud Firestore Security Rules.',true);}
+  });
+  $('firebaseRequestList')?.addEventListener('click',async e=>{
+    const approve=e.target.closest('[data-approve-request]'); if(!approve || !requireAdmin('approve users'))return;
+    const uid=approve.dataset.approveRequest;
+    try{
+      const snap=await firebaseDb.collection('accessRequests').doc(uid).get(); const req=snap.exists?snap.data():null;
+      if(!req){notify('Request no longer exists. Refresh the list.',true);await loadFirebaseRequests();return;}
+      $('managedUserUid').value=uid; $('managedUserEmail').value=req.email||''; $('managedUserName').value=req.name||req.email||''; $('managedUserRole').value='Viewer'; $('managedUserActive').checked=true;
+      await firebaseDb.collection('access').doc(uid).set({role:'Viewer',active:true,name:req.name||req.email||'User',email:req.email||''});
+      await firebaseDb.collection('accessRequests').doc(uid).delete(); notify('User approved as Viewer. You can change their role below.'); await loadFirebaseUsers(); await loadFirebaseRequests();
+    }catch(err){notify('Could not approve user: '+(err.message||err)+'. Check Cloud Firestore Security Rules.',true);}
   });
   $('firebaseUserList')?.addEventListener('click',async e=>{
     const edit=e.target.closest('[data-edit-firebase-user]'); const toggle=e.target.closest('[data-toggle-firebase-user]');
@@ -494,8 +518,8 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
     const next=! (u.active===true);
     if(uid===firebaseUser?.uid&&!next){notify('You cannot deactivate your own account while signed in.',true);return;}
     if(!confirm(`${next?'Activate':'Deactivate'} access for ${u.email||uid}?`))return;
-    try{await firebaseDb.ref('access/'+uid).update({active:next});notify(`User ${next?'activated':'deactivated'}.`);await loadFirebaseUsers();}
-    catch(err){notify('Could not update user: '+(err.message||err)+'. Check Firebase Rules.',true);}
+    try{await firebaseDb.collection('access').doc(uid).update({active:next});notify(`User ${next?'activated':'deactivated'}.`);await loadFirebaseUsers();}
+    catch(err){notify('Could not update user: '+(err.message||err)+'. Check Cloud Firestore Security Rules.',true);}
   });
 
   function syncLoginRole(){
@@ -509,7 +533,7 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
     if(passwordEl){passwordEl.required=needsPassword;if(!needsPassword)passwordEl.value='';}
     if(errorEl) errorEl.classList.add('hidden');
   }
-  // User roles are managed in Firebase Realtime Database, not browser-local accounts.
+  // User roles are managed in Cloud Firestore, not browser-local accounts.
   $('leaveReason').addEventListener('input',()=> $('leaveReason').setCustomValidity(''));
   $('leaveForm').addEventListener('reset',()=>setTimeout(applyLeaveReasonDefault,0));
   function applyLeaveReasonDefault(){
@@ -917,7 +941,7 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
     'No employees added yet.':'Belum ada kakitangan.','No staff added':'Tiada kakitangan ditambah','No custom leave types added.':'Tiada jenis cuti tambahan.',
     'Employees':'Kakitangan','Leave applications':'Permohonan cuti','Total calendar leave days':'Jumlah hari cuti','Annual leave days':'Hari cuti tahunan',
     'View-only access: you can browse the calendar and reports, but cannot add, edit, or delete records.':'Akses lihat sahaja: anda boleh melihat takwim dan laporan, tetapi tidak boleh menambah, mengedit atau memadam rekod.',
-    'Connected to Firebase Realtime Database with Google sign-in. Access is controlled by Firebase Security Rules; configure approved roles before storing real employee information. Export backups securely.':'Prototaip: data disimpan dalam pelayar ini. Gunakan “Eksport sandaran” untuk menyimpan salinan JSON. Ini bukan sistem log masuk berbilang pengguna yang selamat atau pangkalan data bersama; jangan simpan maklumat sensitif.',
+    'Connected to Cloud Firestore with Google sign-in. Changes are saved to the database when you save records; data is not live-synced. Configure Firestore Security Rules before storing real employee information.':'Prototaip: data disimpan dalam pelayar ini. Gunakan “Eksport sandaran” untuk menyimpan salinan JSON. Ini bukan sistem log masuk berbilang pengguna yang selamat atau pangkalan data bersama; jangan simpan maklumat sensitif.',
     'Reason is required for MC, Emergency Leave, and CSDS Leave.':'Sebab wajib diisi untuk MC, Cuti Kecemasan dan Cuti CSDS.',
     'Enter reason or remarks':'Masukkan sebab atau catatan'
   };
