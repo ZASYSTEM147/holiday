@@ -1,8 +1,3 @@
-# Keep local/private backups and data files out of the repository
-*.json
 *.csv
 *.xlsx
-*.xls
-*.bak
-.DS_Store
-Thumbs.db
+*backup*.json
