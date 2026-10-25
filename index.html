@@ -890,9 +890,13 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
     document.querySelectorAll('body *').forEach(el=>{
       if(el.children.length===0 && el.textContent.trim()){
         const current=el.textContent.trim();
+        // If the app changed this element's text since we last translated it (counters, status text),
+        // treat the new text as the new original instead of restoring the stale cached one.
+        if(el.dataset.enText && el.dataset.langText!==undefined && current!==el.dataset.langText) delete el.dataset.enText;
         const original=el.dataset.enText||(ms?(reverseTranslations[current]||current):current);
         if(!el.dataset.enText) el.dataset.enText=original;
         el.textContent=ms?(dict[original]||original):el.dataset.enText;
+        el.dataset.langText=el.textContent.trim();
       }
     });
     document.querySelectorAll('[placeholder]').forEach(el=>{
