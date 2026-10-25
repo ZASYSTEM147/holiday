@@ -1,28 +1,24 @@
-# HRM Leave Management
+# HRM Leave Management — new Firebase project
 
-A browser-based HRM leave management prototype with calendar, employee records, leave applications, leave-type colours, reports, English/Malay interface, and Admin / Editor / Viewer roles.
+This package is configured for Firebase project `holiday-15b66` and Cloud Firestore. It saves records when users save changes; it does not use Realtime Database for HRM records.
 
-## Run locally
+## Firebase setup
+1. In Firebase Console, open project `holiday-15b66`.
+2. Authentication → Sign-in method → enable Google. Add `zasystem147.github.io` under Authentication Settings → Authorized domains.
+3. Build → Firestore Database → create the database if needed.
+4. Firestore Database → Rules: publish the included `firestore.rules`.
+5. Authentication → Users: sign in to the HRM once with the Gmail account intended to be Admin, then copy its exact UID.
+6. Firestore → Data: create collection `access`, with a document ID equal to that exact Firebase Auth UID. Add fields:
+   - `active` (Boolean): `true`
+   - `email` (String): your Gmail address
+   - `name` (String): `HRM Administrator`
+   - `role` (String): `Admin`
+7. Replace `index.html` in the GitHub repository with this package's `index.html` and commit. GitHub Pages should then serve the new version.
 
-Open `index.html` in a modern browser.
+## Data location
+The app stores the main HRM data at `appData/main`; approved roles at `access/{uid}`; and first-time access requests at `accessRequests/{uid}`.
 
-## Publish with GitHub Pages
-
-1. Sign in to GitHub and create a new repository, for example `hrm-leave-management`.
-2. Upload `index.html` and this `README.md` to the repository root.
-3. Open the repository's **Settings → Pages**.
-4. Under **Build and deployment**, select **Deploy from a branch**.
-5. Select the `main` branch and `/ (root)` folder, then click **Save**.
-6. Wait for the deployment to finish. GitHub will show the published website URL in **Settings → Pages**.
-
-## Important limitations
-
-- This is a static, browser-based prototype. Data is saved in the browser's local storage, so it is not automatically shared between users or devices.
-- User accounts and passwords are handled client-side. This is **not secure authentication** and should not be used for sensitive or production HR data.
-- Do not publish real employee personal data, IC numbers, medical details, or leave records in the repository.
-- Use the system's export/backup feature regularly and store backups securely.
-- If you need a real multi-user HR system, use a backend with proper authentication, access controls, encrypted storage, and backups.
-
-## Updating the site
-
-Replace `index.html` with the newer version, commit the change, and push it to the `main` branch. GitHub Pages will redeploy the site.
+## Important
+- This package does not migrate old data from the previous Firebase project. Export/backup old records before switching and transfer them separately if needed.
+- Do not publish permissive rules. The included rules expect users to have an active `access/{uid}` role record.
+- Test with sample data first. I cannot publish to your Firebase or GitHub account from this package.
