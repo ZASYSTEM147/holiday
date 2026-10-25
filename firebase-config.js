@@ -1,5 +1,6 @@
-// For Firebase JS SDK v7.20.0 and later, measurementId is optional
-const firebaseConfig = {
+// Firebase web-app settings for project "holiday" (these values are public by design;
+// security comes from the Firestore rules).
+window.FIREBASE_CONFIG = {
   apiKey: "AIzaSyCYvDKE1OJ25Amrg1I2wYCNXFrH0zrgXfU",
   authDomain: "holiday-15b66.firebaseapp.com",
   projectId: "holiday-15b66",
