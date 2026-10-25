@@ -1,36 +1,27 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    function signedIn() { return request.auth != null; }
-    function userDoc(uid) {
-      return get(/databases/$(database)/documents/access/$(uid)).data;
+
+    function hasAccess() {
+      return request.auth != null &&
+        exists(/databases/$(database)/documents/access/$(request.auth.token.email));
     }
-    function activeUser() {
-      return signedIn()
-        && exists(/databases/$(database)/documents/access/$(request.auth.uid))
-        && userDoc(request.auth.uid).active == true
-        && userDoc(request.auth.uid).role in ['Admin', 'Editor', 'Viewer'];
+    function role() {
+      return get(/databases/$(database)/documents/access/$(request.auth.token.email)).data.role;
     }
-    function isAdmin() {
-      return activeUser() && userDoc(request.auth.uid).role == 'Admin';
-    }
-    function canEdit() {
-      return activeUser() && userDoc(request.auth.uid).role in ['Admin', 'Editor'];
+    function isAdmin()  { return hasAccess() && role() == 'Admin'; }
+    function canEdit()  { return hasAccess() && (role() == 'Admin' || role() == 'Editor'); }
+
+    // Access list: users read their own record; only Admins read the full list and manage it.
+    match /access/{email} {
+      allow read: if request.auth != null && (request.auth.token.email == email || isAdmin());
+      allow write: if isAdmin();
     }
 
-    match /access/{uid} {
-      allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
-      allow create, update, delete: if isAdmin();
-    }
-
-    match /accessRequests/{uid} {
-      allow create, update: if signedIn() && request.auth.uid == uid;
-      allow read, delete: if isAdmin();
-    }
-
-    match /appData/{docId} {
-      allow read: if activeUser();
-      allow create, update, delete: if canEdit() && docId == 'main';
+    // Leave data: any approved user can view; Admin and Editor can save.
+    match /holiday/{doc} {
+      allow read: if hasAccess();
+      allow write: if canEdit();
     }
   }
 }

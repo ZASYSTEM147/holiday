@@ -533,7 +533,9 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
     return 'Sign-in failed: '+(c||err.message);
   }
   if(!fbConfigured){
-    loginError('Firebase is not configured yet. Edit firebase-config.js and paste your project settings.');
+    loginError(!window.firebase ? 'Firebase library could not load. Check your internet connection or ad-blocker.'
+      : !FB_CFG ? 'firebase-config.js was not found. Upload it to the same folder as index.html in your GitHub repo.'
+      : 'firebase-config.js still has the placeholder values. Paste your Firebase project settings into it.');
     $('loginSubmit').disabled = true;
   } else {
     firebase.initializeApp(FB_CFG);
