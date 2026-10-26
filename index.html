@@ -244,6 +244,10 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
 }
 .year-select{width:auto;min-width:92px;font-weight:700;padding:8px 10px}
 @media (max-width:600px){.month-controls{flex-wrap:wrap;justify-content:flex-end}}
+.code-badge{display:inline-block;background:#2563a6;color:#fff;border:0;border-radius:8px;padding:2px 9px;min-height:0;font-size:.8rem;font-weight:800;margin-right:8px;cursor:pointer;vertical-align:middle;letter-spacing:.3px}
+.code-badge.empty{background:transparent;color:#2563a6;border:1px dashed #2563a6;font-weight:700}
+.code-badge.static{cursor:default}
+@media (max-width:600px){.code-badge{min-height:30px;padding:3px 10px}}
 </style>
 </head>
 <body>
@@ -1175,12 +1179,17 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
   }
   function renderEmployeeOptions(){
     const current=$('leaveEmployee').value;
-    $('leaveEmployee').innerHTML='<option value="">Select employee</option>'+data.employees.map(e=>`<option value="${esc(e.id)}">${esc(e.name)}</option>`).join('');
+    $('leaveEmployee').innerHTML='<option value="">Select employee</option>'+data.employees.map(e=>`<option value="${esc(e.id)}">${esc(empLabel(e))}</option>`).join('');
     if(data.employees.some(e=>e.id===current)) $('leaveEmployee').value=current;
   }
+  function codeBadge(e){
+    if(canEditData()) return `<button type="button" class="code-badge${e.nameCode?'':' empty'}" data-edit-code="${esc(e.id)}" title="Edit name code (KOD NAMA)">${e.nameCode?esc(e.nameCode):'＋ code'}</button>`;
+    return e.nameCode?`<span class="code-badge static">${esc(e.nameCode)}</span>`:'';
+  }
+  const empLabel=e=>(e.nameCode?e.nameCode+' – ':'')+e.name;
   function renderEmployees(){
     $('employeeCount').textContent=data.employees.length;
-    $('employeeList').innerHTML=data.employees.length?data.employees.map(e=>`<div class="employee-row"><div class="employee-details"><strong>${esc(e.name)}</strong>${e.position?`<div class="muted">Position: ${esc(e.position)}</div>`:''}${e.icNumber?`<div class="muted">IC number: ${esc(e.icNumber)}</div>`:''}${e.fileNumber?`<div class="muted">File number: ${esc(e.fileNumber)}</div>`:''}${e.nameCode?`<div class="muted">Name code: ${esc(e.nameCode)}</div>`:''}</div><div class="employee-actions ${isAdmin()?'':'hidden'}"><button type="button" class="secondary small" data-edit-employee="${esc(e.id)}">Edit details</button><button type="button" class="danger small" data-delete-employee="${esc(e.id)}">Delete employee</button></div></div>`).join(''):'<p class="empty">No employees added yet.</p>';
+    $('employeeList').innerHTML=data.employees.length?data.employees.map(e=>`<div class="employee-row"><div class="employee-details"><strong>${codeBadge(e)}${esc(e.name)}</strong>${e.position?`<div class="muted">Position: ${esc(e.position)}</div>`:''}${e.icNumber?`<div class="muted">IC number: ${esc(e.icNumber)}</div>`:''}${e.fileNumber?`<div class="muted">File number: ${esc(e.fileNumber)}</div>`:''}</div><div class="employee-actions ${isAdmin()?'':'hidden'}"><button type="button" class="secondary small" data-edit-employee="${esc(e.id)}">Edit details</button><button type="button" class="danger small" data-delete-employee="${esc(e.id)}">Delete employee</button></div></div>`).join(''):'<p class="empty">No employees added yet.</p>';
     renderEmployeeOptions();
   }
   function recordsOn(date){return data.leaves.filter(l=>l.start<=date&&l.end>=date&&activeCalendarTypes.has(l.type)).sort((a,b)=>a.name.localeCompare(b.name));}
@@ -1326,7 +1335,7 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
   function renderReports(){
     const previousEmployee=$('recordSearch').value||'';
     const employees=data.employees.slice().sort((a,b)=>a.name.localeCompare(b.name));
-    $('recordSearch').innerHTML='<option value="">All employees</option>'+employees.map(e=>`<option value="${esc(e.id)}">${esc(e.name)}</option>`).join('');
+    $('recordSearch').innerHTML='<option value="">All employees</option>'+employees.map(e=>`<option value="${esc(e.id)}">${esc(empLabel(e))}</option>`).join('');
     if(employees.some(e=>String(e.id)===previousEmployee))$('recordSearch').value=previousEmployee;
     const employeeId=$('recordSearch').value;
     const chosenEmployee=employees.find(e=>String(e.id)===String(employeeId));
@@ -1613,6 +1622,17 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
     if(e.target===$('editEmployeeModal'))$('editEmployeeModal').classList.add('hidden');
   });
   $('employeeList').addEventListener('click',e=>{
+    const codeBtn=e.target.closest('[data-edit-code]');
+    if(codeBtn){
+      if(!requireDataAccess('edit name codes'))return;
+      const emp=data.employees.find(x=>String(x.id)===codeBtn.dataset.editCode);
+      if(!emp)return;
+      const entered=prompt(`Name code (KOD NAMA) for ${emp.name}:`,emp.nameCode||'');
+      if(entered===null)return;
+      emp.nameCode=entered.trim().toUpperCase().slice(0,12);
+      persist();renderAll();notify(emp.nameCode?`Name code for ${emp.name} set to ${emp.nameCode}.`:`Name code removed for ${emp.name}.`);
+      return;
+    }
     const edit=e.target.closest('[data-edit-employee]');
     if(edit){
       if(!requireDataAccess('edit employee details'))return;
