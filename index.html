@@ -242,6 +242,8 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
   .tabs button{min-width:60px!important;font-size:.58rem!important;padding:5px 1px!important}
   .tabs button.active{scroll-margin:0 40px}
 }
+.year-select{width:auto;min-width:92px;font-weight:700;padding:8px 10px}
+@media (max-width:600px){.month-controls{flex-wrap:wrap;justify-content:flex-end}}
 </style>
 </head>
 <body>
@@ -257,7 +259,7 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
     <div><h1>📅 HRM Leave Management</h1><p>Employee leave calendar, applications and reports</p></div>
     <div class="rolebar">
       <div class="clockbox" aria-label="Current local date and time"><span id="digitalHijriDate" class="clock-hijri-date">Loading Hijri date…</span><span id="digitalDate" class="clock-date">Loading date…</span><span id="digitalClock" class="clock-time">--:--:--</span></div>
-      <label class="header-control"><span class="sr-only">Language</span><select id="languageSelect" aria-label="Language"><option value="en">English</option><option value="ms">Bahasa Melayu</option></select></label><button id="themeToggle" class="secondary" type="button" aria-label="Toggle dark mode">🌙 Dark mode</button><span id="currentRole" class="pill">Not signed in</span><button id="logoutBtn" class="secondary">Log out</button><button id="importCsvBtn" class="secondary" type="button">Import Excel</button><input id="importCsvFile" type="file" accept=".csv,text/csv,.txt,application/vnd.ms-excel" class="hidden" aria-label="Choose Excel-compatible CSV file"><button id="exportCsvBtn" class="secondary" type="button">Export Excel</button><button id="importFullBackupBtn" class="secondary" type="button">Import Full System Backup</button><input id="importFullBackupFile" type="file" accept=".json,application/json" class="hidden" aria-label="Choose full system backup JSON file"><button id="fullBackupBtn" class="secondary" type="button">Full System Backup</button>
+      <label class="header-control"><span class="sr-only">Language</span><select id="languageSelect" aria-label="Language"><option value="en">English</option><option value="ms">Bahasa Melayu</option></select></label><button id="themeToggle" class="secondary" type="button" aria-label="Toggle dark mode">🌙 Dark mode</button><span id="currentRole" class="pill">Not signed in</span><button id="logoutBtn" class="secondary">Log out</button><button id="importCsvBtn" class="secondary" type="button">Import Excel</button><input id="importCsvFile" type="file" accept=".xlsx,.csv,text/csv,.txt,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" class="hidden" aria-label="Choose Excel (.xlsx) or CSV file"><button id="exportCsvBtn" class="secondary" type="button">Export Excel</button><button id="importFullBackupBtn" class="secondary" type="button">Import Full System Backup</button><input id="importFullBackupFile" type="file" accept=".json,application/json" class="hidden" aria-label="Choose full system backup JSON file"><button id="fullBackupBtn" class="secondary" type="button">Full System Backup</button>
     </div>
   </header>
   <div class="stats">
@@ -280,7 +282,7 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
       <div class="panel">
         <div class="monthbar">
           <h2 id="monthTitle">Calendar</h2>
-          <div class="month-controls"><button class="secondary" id="prevMonth" aria-label="Previous month">‹</button><button class="secondary" id="todayBtn">Today</button><button class="secondary" id="nextMonth" aria-label="Next month">›</button></div>
+          <div class="month-controls"><select id="calendarYear" aria-label="Year" class="year-select"></select><button class="secondary" id="prevMonth" aria-label="Previous month">‹</button><button class="secondary" id="todayBtn">Today</button><button class="secondary" id="nextMonth" aria-label="Next month">›</button></div>
         </div>
         <div class="legend" id="calendarFilters" style="margin:0 0 12px">
           <button type="button" class="small filter-toggle active" data-type-filter="Annual Leave" style="background:var(--blue);color:var(--blueText);border:1px solid #bfdbfe">🔵 Annual</button>
@@ -346,6 +348,7 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
         <div class="field"><label for="employeePosition">Position</label><input id="employeePosition" maxlength="100" placeholder="e.g. Administrative Officer"></div>
         <div class="field"><label for="employeeIc">IC number</label><input id="employeeIc" maxlength="40" placeholder="Enter IC number" autocomplete="off"></div>
         <div class="field"><label for="employeeFileNo">File number</label><input id="employeeFileNo" maxlength="50" placeholder="Enter file number"></div>
+        <div class="field"><label for="employeeNameCode">Name code (KOD NAMA)</label><input id="employeeNameCode" maxlength="12" placeholder="e.g. NM" autocomplete="off"></div>
         <button type="submit">＋ Add employee</button>
       </form>
       <h3>Employees (<span id="employeeCount">0</span>)</h3><p class="muted">Scroll to a staff row below. Click <strong>Edit details</strong> to update information or <strong>Delete employee</strong> to remove the record. These buttons are available when signed in as Admin.</p>
@@ -374,6 +377,7 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
         <div class="field"><label for="editEmployeePosition">Position</label><input id="editEmployeePosition"></div>
         <div class="field"><label for="editEmployeeIc">IC number</label><input id="editEmployeeIc"></div>
         <div class="field"><label for="editEmployeeFileNo">File number</label><input id="editEmployeeFileNo"></div>
+        <div class="field"><label for="editEmployeeNameCode">Name code (KOD NAMA)</label><input id="editEmployeeNameCode" maxlength="12"></div>
         <div class="record-actions"><button type="submit">Save changes</button><button type="button" class="secondary" id="cancelEditEmployeeBtn">Cancel</button></div>
       </form>
     </div>
@@ -396,6 +400,7 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
       <p class="muted">Admins can add leave types, edit names, change calendar colours, or delete types.</p>
       <form id="leaveTypeForm">
         <div class="field"><label for="newLeaveType">New leave type name *</label><input id="newLeaveType" required maxlength="50" placeholder="e.g. Study Leave"></div>
+        <div class="field"><label for="newLeaveTypeCode">Excel code (KOD) — optional</label><input id="newLeaveTypeCode" maxlength="30" placeholder="e.g. CT, CS (SWASTA)"></div>
         <button type="submit">＋ Add leave type</button>
       </form>
       <h3>Leave types and colours</h3>
@@ -406,6 +411,7 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
     <div class="panel">
       <h2>Leave records & reports</h2>
       <div class="field"><label for="recordSearch">Choose employee</label><select class="search" id="recordSearch"><option value="">All employees</option></select></div>
+      <div class="field"><label for="recordYear">Filter year</label><select id="recordYear"></select></div>
       <div class="field"><label for="recordFilter">Filter leave type</label><select id="recordFilter"><option>All</option><option>Annual Leave</option><option>Emergency Leave</option><option>CSDS Leave</option><option>Cuti Beranak</option><option>Mandatory</option><option>MC</option></select></div>
       <div id="typeTotals"></div>
       <h3>Applications (<span id="recordCount">0</span>)</h3>
@@ -418,6 +424,7 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
 <script src="firebase-config.js"></script>
+<script src="catatan.js"></script>
 <script>
 (() => {
   // Missing elements (e.g. removed buttons) return a harmless detached <div> instead of null.
@@ -441,7 +448,11 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
   function canEditData(){return !!currentUser&&['Admin','Editor'].includes(currentUser.role);}
   function requireDataAccess(action='change data'){if(!canEditData()){notify('Viewer access is read-only. Sign in as Editor or Admin to '+action+'.',true);return false;}return true;}
 
-  const defaultLeaveTypes = ['Annual Leave','Emergency Leave','CSDS Leave','Cuti Beranak','Mandatory','MC'];
+  const defaultLeaveTypes = ['Annual Leave','Emergency Leave','CSDS Leave'];
+  const LEGACY_REMOVED_TYPES = ['Mandatory','MC','Cuti Beranak'];
+  // Codes used in the CATATAN CUTI (HRM) Excel file
+  const DEFAULT_TYPE_CODES = {'Annual Leave':'CT','Mandatory':'CM','Emergency Leave':'EL','CSDS Leave':'CSDS','MC':'CS','Cuti Beranak':'CB'};
+  const typeCode = t => (data.leaveTypeCodes&&data.leaveTypeCodes[t]) || DEFAULT_TYPE_CODES[t] || t;
   // Normalise older/imported leave rows so the calendar, reports and day counts
   // all use the same canonical fields.
   data.leaves=data.leaves.map(l=>{
@@ -460,7 +471,7 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
   if(!Array.isArray(data.requiredReasonTypes)) data.requiredReasonTypes=['MC','Emergency Leave','CSDS Leave'];
   if(!data.leaveTypeColors || typeof data.leaveTypeColors!=='object') data.leaveTypeColors={};
   if(!Array.isArray(data.leaveTypes)) data.leaveTypes=[...defaultLeaveTypes];
-  else data.leaveTypes=[...new Set([...defaultLeaveTypes,...data.leaveTypes])];
+
   const allCalendarTypes = data.leaveTypes;
   const activeCalendarTypes = new Set(allCalendarTypes);
   function updateDigitalClock(){
@@ -520,10 +531,6 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
     if(!button)return;
     if(!requireAdmin('delete leave types'))return;
     const name=button.dataset.deleteLeaveType;
-    if(defaultLeaveTypes.includes(name)){
-      notify('Built-in leave types cannot be deleted. You can rename them or change their colour.',true);
-      return;
-    }
     const linked=data.leaves.filter(r=>r.type===name).length;
     if(linked){
       notify(`Cannot delete "${name}" because ${linked} existing leave record(s) use it. Edit or remove those records first.`,true);
@@ -533,6 +540,7 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
     data.leaveTypes=data.leaveTypes.filter(t=>t!==name);
     activeCalendarTypes.delete(name);
     delete data.leaveTypeColors[name];
+    if(data.leaveTypeCodes)delete data.leaveTypeCodes[name];
     data.requiredReasonTypes=data.requiredReasonTypes.filter(t=>t!==name);
     persist();renderAll();notify(`Leave type "${name}" deleted.`);
   });
@@ -568,9 +576,22 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
     data.leaveTypes=data.leaveTypes.map(t=>t===oldName?newName:t);
     data.leaves=data.leaves.map(r=>r.type===oldName?{...r,type:newName}:r);
     if(data.leaveTypeColors[oldName]){data.leaveTypeColors[newName]=data.leaveTypeColors[oldName];delete data.leaveTypeColors[oldName];}
+    data.leaveTypeCodes=data.leaveTypeCodes||{};data.leaveTypeCodes[newName]=typeCode(oldName);delete data.leaveTypeCodes[oldName];
     if(activeCalendarTypes.has(oldName)){activeCalendarTypes.delete(oldName);activeCalendarTypes.add(newName);}
     if(data.requiredReasonTypes.includes(oldName))data.requiredReasonTypes=data.requiredReasonTypes.map(t=>t===oldName?newName:t);
     persist();renderAll();notify(`Leave type renamed to "${newName}". Existing leave records were updated.`);
+  });
+  $('customLeaveTypes').addEventListener('click',e=>{
+    const button=e.target.closest('[data-edit-leave-code]');
+    if(!button)return;
+    if(!requireAdmin('edit leave type codes'))return;
+    const name=button.dataset.editLeaveCode;
+    const entered=prompt('Code used in the Excel file (e.g. CT, CS (SWASTA)):',typeCode(name));
+    if(entered===null)return;
+    const code=entered.trim().replace(/\s+/g,' ');
+    if(!code){notify('Code cannot be blank.',true);return;}
+    data.leaveTypeCodes=data.leaveTypeCodes||{};data.leaveTypeCodes[name]=code;
+    persist();renderAll();notify(`Excel code for "${name}" set to ${code}.`);
   });
   $('leaveTypeForm').addEventListener('submit',e=>{
     e.preventDefault();
@@ -578,7 +599,7 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
     const name=$('newLeaveType').value.trim();
     if(!name)return;
     if(data.leaveTypes.some(t=>t.toLowerCase()===name.toLowerCase())){notify('That leave type already exists.',true);return;}
-    data.leaveTypes.push(name);activeCalendarTypes.add(name);persist();$('newLeaveType').value='';
+    data.leaveTypes.push(name);activeCalendarTypes.add(name);const codeIn=$('newLeaveTypeCode').value.trim();data.leaveTypeCodes=data.leaveTypeCodes||{};if(codeIn)data.leaveTypeCodes[name]=codeIn.replace(/\s+/g,' ');persist();$('newLeaveType').value='';$('newLeaveTypeCode').value='';
     renderLeaveTypeOptions();renderAll();notify('Leave type added.');
   });
   // ===== Firebase (Auth + Firestore) =====
@@ -603,9 +624,16 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
         reason:String(l.reason||l.remarks||'')
       };
     });
-    if(!Array.isArray(d.requiredReasonTypes)) d.requiredReasonTypes=['MC','Emergency Leave','CSDS Leave'];
+    if(!Array.isArray(d.requiredReasonTypes)) d.requiredReasonTypes=['Emergency Leave','CSDS Leave'];
     if(!d.leaveTypeColors || typeof d.leaveTypeColors!=='object') d.leaveTypeColors={};
-    d.leaveTypes=[...new Set([...defaultLeaveTypes,...(Array.isArray(d.leaveTypes)?d.leaveTypes:[])])];
+    if(!d.leaveTypeCodes || typeof d.leaveTypeCodes!=='object' || Array.isArray(d.leaveTypeCodes)) d.leaveTypeCodes={};
+    if(!d.legacyTypesRemoved && Array.isArray(d.leaveTypes)){
+      const used=new Set(d.leaves.map(l=>l.type));
+      d.leaveTypes=d.leaveTypes.filter(t=>!LEGACY_REMOVED_TYPES.includes(t)||used.has(t));
+      d.requiredReasonTypes=d.requiredReasonTypes.filter(t=>t!=='MC');
+    }
+    d.legacyTypesRemoved=true;
+    d.leaveTypes=[...new Set([...(Array.isArray(d.leaveTypes)?d.leaveTypes:defaultLeaveTypes),...d.leaves.map(l=>l.type).filter(Boolean)])];
     return d;
   }
   function applyCloud(obj){
@@ -737,7 +765,7 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
   }
   function renderEmployees(){
     $('employeeCount').textContent=data.employees.length;
-    $('employeeList').innerHTML=data.employees.length?data.employees.map(e=>`<div class="employee-row"><div class="employee-details"><strong>${esc(e.name)}</strong>${e.position?`<div class="muted">Position: ${esc(e.position)}</div>`:''}${e.icNumber?`<div class="muted">IC number: ${esc(e.icNumber)}</div>`:''}${e.fileNumber?`<div class="muted">File number: ${esc(e.fileNumber)}</div>`:''}</div><div class="employee-actions ${isAdmin()?'':'hidden'}"><button type="button" class="secondary small" data-edit-employee="${esc(e.id)}">Edit details</button><button type="button" class="danger small" data-delete-employee="${esc(e.id)}">Delete employee</button></div></div>`).join(''):'<p class="empty">No employees added yet.</p>';
+    $('employeeList').innerHTML=data.employees.length?data.employees.map(e=>`<div class="employee-row"><div class="employee-details"><strong>${esc(e.name)}</strong>${e.position?`<div class="muted">Position: ${esc(e.position)}</div>`:''}${e.icNumber?`<div class="muted">IC number: ${esc(e.icNumber)}</div>`:''}${e.fileNumber?`<div class="muted">File number: ${esc(e.fileNumber)}</div>`:''}${e.nameCode?`<div class="muted">Name code: ${esc(e.nameCode)}</div>`:''}</div><div class="employee-actions ${isAdmin()?'':'hidden'}"><button type="button" class="secondary small" data-edit-employee="${esc(e.id)}">Edit details</button><button type="button" class="danger small" data-delete-employee="${esc(e.id)}">Delete employee</button></div></div>`).join(''):'<p class="empty">No employees added yet.</p>';
     renderEmployeeOptions();
   }
   function recordsOn(date){return data.leaves.filter(l=>l.start<=date&&l.end>=date&&activeCalendarTypes.has(l.type)).sort((a,b)=>a.name.localeCompare(b.name));}
@@ -799,7 +827,18 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
     } catch (e2) {}
     return 'Hijri date unavailable';
   }
+  function yearChoices(selected){
+    const ys=data.leaves.flatMap(l=>[String(l.start||l.startDate||'').slice(0,4),String(l.end||l.endDate||'').slice(0,4)]).map(Number).filter(Boolean);
+    const maxY=Math.max(2026,new Date().getFullYear()+1,selected||0,...ys);
+    const out=[];for(let y=2026;y<=maxY;y++)out.push(y);return out;
+  }
+  function fillYearSelect(el,selected,withAll){
+    if(!el)return;
+    el.innerHTML=(withAll?'<option value="">All years</option>':'')+yearChoices(+selected||0).map(y=>`<option value="${y}">${y}</option>`).join('');
+    el.value=selected===''||selected==null?(withAll?'':String(new Date().getFullYear())):String(selected);
+  }
   function renderCalendar(){
+    fillYearSelect($('calendarYear'),month.getFullYear(),false);
     const monthYearDate=new Date(month.getFullYear(),month.getMonth(),1,12);
     $('monthTitle').innerHTML=`<span class="hijri-month-subtitle">${hijriMonthRangeLabel(month.getFullYear(),month.getMonth())}</span><span class="gregorian-month-title">${monthYearDate.toLocaleDateString(undefined,{month:'long',year:'numeric'})}</span>`;
     const first=new Date(month.getFullYear(),month.getMonth(),1);
@@ -868,6 +907,7 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
   });
   $('recordSearch').addEventListener('change',()=>renderReports());
   $('recordFilter').addEventListener('change',()=>renderReports());
+  $('recordYear').addEventListener('change',()=>renderReports());
   function renderReports(){
     const previousEmployee=$('recordSearch').value||'';
     const employees=data.employees.slice().sort((a,b)=>a.name.localeCompare(b.name));
@@ -876,6 +916,8 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
     const employeeId=$('recordSearch').value;
     const chosenEmployee=employees.find(e=>String(e.id)===String(employeeId));
     const filter=$('recordFilter').value;
+    const prevYear=$('recordYear').value;fillYearSelect($('recordYear'),prevYear,true);
+    const yearSel=$('recordYear').value;
     const recordName=r=>{
       if(r.name||r.employeeName||r.staffName)return String(r.name||r.employeeName||r.staffName);
       const emp=employees.find(e=>String(e.id)===String(r.employeeId||r.staffId));
@@ -889,13 +931,20 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
       return String(r.employeeId||r.staffId||'')===String(employeeId) ||
         recordName(r)===chosenEmployee?.name;
     };
-    const recs=data.leaves.filter(r=>belongsToEmployee(r)&&(filter==='All'||recordType(r)===filter))
+    const inYear=r=>!yearSel||(recordStart(r).slice(0,10)<=yearSel+'-12-31'&&recordEnd(r).slice(0,10)>=yearSel+'-01-01');
+    const daysIn=r=>{
+      if(!yearSel)return countDays(recordStart(r),recordEnd(r));
+      const a=recordStart(r).slice(0,10)<yearSel+'-01-01'?yearSel+'-01-01':recordStart(r).slice(0,10);
+      const b=recordEnd(r).slice(0,10)>yearSel+'-12-31'?yearSel+'-12-31':recordEnd(r).slice(0,10);
+      return countDays(a,b);
+    };
+    const recs=data.leaves.filter(r=>belongsToEmployee(r)&&inYear(r)&&(filter==='All'||recordType(r)===filter))
       .slice().sort((a,b)=>recordStart(a).localeCompare(recordStart(b))||recordName(a).localeCompare(recordName(b)));
     $('recordCount').textContent=recs.length;
     const types=[...new Set([...(data.leaveTypes||[]),...data.leaves.map(recordType)])];
     $('typeTotals').innerHTML=types.map(t=>{
-      const days=data.leaves.filter(r=>belongsToEmployee(r)&&recordType(r)===t)
-        .reduce((n,r)=>n+countDays(recordStart(r),recordEnd(r)),0);
+      const days=data.leaves.filter(r=>belongsToEmployee(r)&&inYear(r)&&recordType(r)===t)
+        .reduce((n,r)=>n+daysIn(r),0);
       return `<div class="employee-row leave-total-card"><span class="leave-total-name">${esc(t)}</span><strong class="leave-total-days">${days} days</strong></div>`;
     }).join('');
     $('recordList').innerHTML=recs.length?recs.map(r=>{
@@ -928,7 +977,7 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
   function renderLeaveTypeOptions(){
     const current=$('leaveTypeSelect')?.value || 'Annual Leave';
 
-    $('leaveTypeForm') && ($('customLeaveTypes').innerHTML=data.leaveTypes.map(t=>`<div class="employee-row leave-type-row"><div class="leave-type-info"><strong>${esc(t)}</strong><div class="muted">${defaultLeaveTypes.includes(t)?'Built-in leave type':'Custom leave type'}</div><label class="color-picker-label">Calendar color <input type="color" value="${esc(data.leaveTypeColors[t]||defaultTypeColor(t))}" data-color-leave-type="${esc(t)}" aria-label="Color for ${esc(t)}"></label></div><div class="leave-type-actions"><button type="button" class="secondary small" data-edit-leave-type="${esc(t)}">Edit name</button><button type="button" class="danger small" data-delete-leave-type="${esc(t)}">Delete</button></div></div>`).join('')||'<p class="muted">No leave types added.</p>');
+    $('leaveTypeForm') && ($('customLeaveTypes').innerHTML=data.leaveTypes.map(t=>`<div class="employee-row leave-type-row"><div class="leave-type-info"><strong>${esc(t)}</strong><div class="muted">Excel code: <strong>${esc(typeCode(t))}</strong></div><label class="color-picker-label">Calendar color <input type="color" value="${esc(data.leaveTypeColors[t]||defaultTypeColor(t))}" data-color-leave-type="${esc(t)}" aria-label="Color for ${esc(t)}"></label></div><div class="leave-type-actions"><button type="button" class="secondary small" data-edit-leave-type="${esc(t)}">Edit name</button><button type="button" class="secondary small" data-edit-leave-code="${esc(t)}">Edit code</button><button type="button" class="danger small" data-delete-leave-type="${esc(t)}">Delete</button></div></div>`).join('')||'<p class="muted">No leave types added.</p>');
     const container=$('leaveTypeSelect');
     if(container){
       container.innerHTML=data.leaveTypes.map(t=>{
@@ -1124,7 +1173,7 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
     e.preventDefault();if(!requireDataAccess('add employees'))return;const name=$('employeeName').value.trim();
     if(!name)return;
     if(data.employees.some(x=>x.name.toLowerCase()===name.toLowerCase())){notify('An employee with this name already exists.',true);return;}
-    const position=$('employeePosition').value.trim(),icNumber=$('employeeIc').value.trim(),fileNumber=$('employeeFileNo').value.trim();data.employees.push({id:crypto.randomUUID?crypto.randomUUID():String(Date.now()),name,position,icNumber,fileNumber});persist();$('employeeName').value='';$('employeePosition').value='';$('employeeIc').value='';$('employeeFileNo').value='';renderAll();notify('Employee added.');
+    const position=$('employeePosition').value.trim(),icNumber=$('employeeIc').value.trim(),fileNumber=$('employeeFileNo').value.trim(),nameCode=$('employeeNameCode').value.trim().toUpperCase();data.employees.push({id:crypto.randomUUID?crypto.randomUUID():String(Date.now()),name,position,icNumber,fileNumber,nameCode});persist();$('employeeName').value='';$('employeePosition').value='';$('employeeIc').value='';$('employeeFileNo').value='';$('employeeNameCode').value='';renderAll();notify('Employee added.');
   });
   $('editEmployeeForm').addEventListener('submit',e=>{
     e.preventDefault();
@@ -1138,7 +1187,8 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
       name,
       position:$('editEmployeePosition').value.trim(),
       icNumber:$('editEmployeeIc').value.trim(),
-      fileNumber:$('editEmployeeFileNo').value.trim()
+      fileNumber:$('editEmployeeFileNo').value.trim(),
+      nameCode:$('editEmployeeNameCode').value.trim().toUpperCase()
     });
     $('editEmployeeModal').classList.add('hidden');
     persist();renderAll();notify('Employee details updated.');
@@ -1158,6 +1208,7 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
       $('editEmployeePosition').value=employee.position||'';
       $('editEmployeeIc').value=employee.icNumber||'';
       $('editEmployeeFileNo').value=employee.fileNumber||'';
+      $('editEmployeeNameCode').value=employee.nameCode||'';
       $('editEmployeeModal').classList.remove('hidden');
       $('editEmployeeName').focus();
       return;
@@ -1219,6 +1270,7 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
     const edit=e.target.closest('[data-edit]');if(edit){editLeave(edit.dataset.edit);return;}
     const del=e.target.closest('[data-delete-leave]');if(del){if(!requireDataAccess('delete leave records'))return;const r=data.leaves.find(x=>x.id===Number(del.dataset.deleteLeave));if(r&&confirm(`Delete ${r.type} for ${r.name}?`)){data.leaves=data.leaves.filter(x=>x.id!==r.id);persist();renderAll();notify('Leave record deleted.');}}
   });
+  $('calendarYear').addEventListener('change',e=>{month=new Date(+e.target.value,month.getMonth(),1);renderCalendar();});
   $('prevMonth').addEventListener('click',()=>{month=new Date(month.getFullYear(),month.getMonth()-1,1);renderCalendar();});
   $('nextMonth').addEventListener('click',()=>{month=new Date(month.getFullYear(),month.getMonth()+1,1);renderCalendar();});
   $('todayBtn').addEventListener('click',()=>{selectedDate=localISO(today);month=new Date(today.getFullYear(),today.getMonth(),1);renderCalendar();});
@@ -1260,7 +1312,7 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
       }
       if(!confirm(`Import ${incoming.employees.length} employee(s) and ${incoming.leaves.length} leave record(s)? This will REPLACE all current employee, leave and leave-type data in this browser. Export a backup first if needed.`))return;
       const types=Array.isArray(incoming.leaveTypes)?incoming.leaveTypes.filter(t=>typeof t==='string' && t.trim()):[];
-      const mergedTypes=[...new Set([...defaultLeaveTypes,...types,...incoming.leaves.map(x=>x.type)])];
+      const mergedTypes=[...new Set([...types,...incoming.leaves.map(x=>x.type)])];
       data={employees:incoming.employees,leaves:incoming.leaves,leaveTypes:mergedTypes,
         leaveTypeColors:incoming.leaveTypeColors && typeof incoming.leaveTypeColors==='object' && !Array.isArray(incoming.leaveTypeColors)?incoming.leaveTypeColors:{},
         requiredReasonTypes:Array.isArray(incoming.requiredReasonTypes)?incoming.requiredReasonTypes:['MC','Emergency Leave','CSDS Leave']};
@@ -1348,7 +1400,7 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
     try{
       const savedTypes=payload.leaveTypes||payload.types||[];
       const leaveTypes=Array.isArray(savedTypes)?savedTypes.filter(t=>typeof t==='string'&&t.trim()):[];
-      const types=[...new Set([...defaultLeaveTypes,...leaveTypes,...cleanLeaves.map(l=>l.type).filter(Boolean)])];
+      const types=[...new Set([...leaveTypes,...cleanLeaves.map(l=>l.type).filter(Boolean)])];
       const colors=payload.leaveTypeColors||payload.leaveColors||{};
       data={
         ...payload,
@@ -1404,18 +1456,74 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
     setTimeout(()=>URL.revokeObjectURL(url),1000);
     notify('Full system backup downloaded.');
   });
-  $('exportCsvBtn').addEventListener('click',()=>{
-    if(!requireAdmin('export Excel/CSV data'))return;
-    const rows=[['record_type','id','name','position','ic_number','file_number','employee_name','leave_type','start_date','end_date','reason','leave_types','leave_type_colors']];
-    data.employees.forEach(e=>rows.push(['employee',e.id,e.name,e.position||'',e.icNumber||'',e.fileNumber||'','','','','','','','']));
-    data.leaves.forEach(l=>{
-      const emp=data.employees.find(e=>String(e.id)===String(l.employeeId)||e.name===l.name);
-      rows.push(['leave',l.id,'','','', '',l.name||emp?.name||'',l.type||'',l.startDate||l.start||'',l.endDate||l.end||'',l.reason||'','','']);
-    });
-    rows.push(['settings','','','','','','','','','','',JSON.stringify(data.leaveTypes||[]),JSON.stringify(data.leaveTypeColors||{})]);
-    downloadCsv('hrm-leave-export.csv',rows);
-    notify('Excel-compatible CSV exported. Open it with Excel.');
+  // ===== CATATAN CUTI (HRM) Excel export / import =====
+  function catatanLegend(){
+    const CANON=window.CatatanXlsx.CANON, bases=new Map();
+    const addBase=code=>window.CatatanXlsx.baseCodes(code).forEach(b=>{const k=b.toUpperCase();if(!bases.has(k))bases.set(k,b);});
+    data.leaveTypes.forEach(t=>addBase(typeCode(t)));
+    data.leaves.forEach(l=>addBase(typeCode(l.type)));
+    const legend=[];
+    CANON.forEach(([c,n])=>{if(bases.has(c))legend.push({code:c,name:n});});
+    bases.forEach((orig,k)=>{if(!CANON.some(x=>x[0]===k)){const t=data.leaveTypes.find(x=>typeCode(x).toUpperCase()===k);legend.push({code:orig,name:t||orig});}});
+    return legend;
+  }
+  function downloadBytes(filename,bytes,mime){
+    const blob=new Blob([bytes],{type:mime}),url=URL.createObjectURL(blob),a=document.createElement('a');
+    a.href=url;a.download=filename;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500);
+  }
+  $('exportCsvBtn').addEventListener('click',async()=>{
+    if(!requireAdmin('export Excel data'))return;
+    if(!window.CatatanXlsx){notify('The Excel module did not load. Reload the page and try again.',true);return;}
+    try{
+      const emps=data.employees.map(e=>({name:e.name,position:e.position||'',ic:e.icNumber||'',fileNo:e.fileNumber||'',nameCode:e.nameCode||''}));
+      const leaves=[];let skipped=0;
+      data.leaves.forEach(l=>{
+        const i=data.employees.findIndex(e=>String(e.id)===String(l.employeeId)||(l.name&&e.name.toLowerCase()===String(l.name).toLowerCase()));
+        const st=String(l.start||l.startDate||'').slice(0,10),en=String(l.end||l.endDate||st).slice(0,10);
+        if(i<0||!st){skipped++;return;}
+        leaves.push({emp:i,code:typeCode(l.type),start:st,end:en});
+      });
+      const years=[...new Set(leaves.map(l=>+l.start.slice(0,4)))];
+      const bytes=await window.CatatanXlsx.build({employees:emps,leaves,legend:catatanLegend(),years});
+      downloadBytes('CATATAN CUTI (HRM).xlsx',bytes,'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      notify(`Excel exported (CATATAN CUTI format): ${emps.length} staff, ${leaves.length} leave record(s), sheet(s) ${years.length?years.map(y=>'HRM '+y).join(', '):'HRM '+new Date().getFullYear()}.`+(skipped?` ${skipped} record(s) without a matching employee were skipped.`:''));
+    }catch(err){console.error(err);notify('Could not create the Excel file: '+(err&&err.message||err),true);}
   });
+  async function importCatatan(file){
+    if(!window.CatatanXlsx){notify('The Excel module did not load. Reload the page and try again.',true);return;}
+    const parsed=await window.CatatanXlsx.parse(await file.arrayBuffer());
+    const msg=`Import ${parsed.employees.length} staff and ${parsed.leaves.length} leave record(s) from "${file.name}"`+(parsed.years.length?` (${parsed.years.join(', ')})`:'')+'?\nThis replaces the current data.'+(parsed.warnings.length?`\n\n${parsed.warnings.length} cell(s) could not be read and will be skipped.`:'');
+    if(!confirm(msg))return;
+    const prev=new Map(data.employees.map(e=>[e.name.toLowerCase(),e]));
+    const employees=parsed.employees.map(p=>{
+      const old=prev.get(p.name.toLowerCase())||{};
+      return {...old,id:old.id||(crypto.randomUUID?crypto.randomUUID():String(uid())),name:p.name,position:p.position||'',icNumber:p.ic||'',
+        fileNumber:p.fileNo?(/^JPKT\//i.test(p.fileNo)?p.fileNo:'JPKT/'+p.fileNo):'',nameCode:p.nameCode||''};
+    });
+    const types=[...data.leaveTypes],codes={...(data.leaveTypeCodes||{})};
+    const key=c=>String(c).replace(/\s+/g,' ').trim().toUpperCase();
+    const resolve=code=>{
+      const k=key(code);
+      let t=types.find(x=>key(typeCode.call(null,x))===k||(codes[x]&&key(codes[x])===k));
+      if(!t)t=types.find(x=>key(x)===k);
+      if(!t){t=String(code).replace(/\s+/g,' ').trim();types.push(t);codes[t]=t;}
+      return t;
+    };
+    const savedCodes=data.leaveTypeCodes;data.leaveTypeCodes=codes;
+    let n=0;const leaves=[];
+    try{
+      parsed.leaves.forEach(l=>{
+        const emp=employees[l.emp];
+        leaves.push({id:Date.now()*1000+(n++),employeeId:emp.id,name:emp.name,type:resolve(l.code),start:l.start,end:l.end,startDate:l.start,endDate:l.end,reason:''});
+      });
+    }finally{data.leaveTypeCodes=savedCodes;}
+    data=normalizeData({...data,employees,leaves,leaveTypes:types,leaveTypeCodes:codes});
+    types.forEach(t=>knownTypes.add(t));
+    persist();activeCalendarTypes.clear();types.forEach(t=>activeCalendarTypes.add(t));renderAll();
+    if(typeof applyLanguage==='function')applyLanguage();
+    if(typeof updateAccessUI==='function')updateAccessUI();
+    notify(`Excel imported: ${employees.length} staff, ${leaves.length} leave record(s).`+(parsed.warnings.length?` ${parsed.warnings.length} cell(s) skipped.`:''));
+  }
   $('importCsvBtn').addEventListener('click',()=>{
     if(!requireAdmin('import Excel/CSV data'))return;
     $('importCsvFile').click();
@@ -1423,7 +1531,11 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
   $('importCsvFile').addEventListener('change',async e=>{
     const file=e.target.files?.[0];e.target.value='';if(!file)return;
     if(!requireAdmin('import Excel/CSV data'))return;
-    if(file.size>10*1024*1024){notify('CSV file too large (maximum 10 MB).',true);return;}
+    if(file.size>10*1024*1024){notify('File too large (maximum 10 MB).',true);return;}
+    if(/\.xlsx$/i.test(file.name)){
+      try{await importCatatan(file);}catch(err){console.error('Excel import error:',err);notify('Could not import Excel: '+(err&&err.message||err),true);}
+      return;
+    }
     try{
       const rows=parseCsv(await file.text());
       if(rows.length<2){notify('CSV is empty or has no data rows.',true);return;}
@@ -1450,7 +1562,7 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
       }
       if(!employees.length&&!leaves.length){notify('No supported rows found. Use CSV UTF-8 exported by HRM, or columns Name/Position/IC Number/File Number and Employee Name/Leave Type/Start Date/End Date.',true);return;}
       if(!confirm(`Import ${employees.length} employee(s) and ${leaves.length} leave record(s)? This replaces current browser data.`))return;
-      const types=[...new Set([...defaultLeaveTypes,...(Array.isArray(importedTypes)?importedTypes:[]),...leaves.map(l=>l.type)])];
+      const types=[...new Set([...(Array.isArray(importedTypes)?importedTypes:[]),...leaves.map(l=>l.type)])];
       data=normalizeData({...data,employees,leaves,leaveTypes:types,
         leaveTypeColors:importedColors&&typeof importedColors==='object'&&!Array.isArray(importedColors)?importedColors:(data.leaveTypeColors||{}),
         requiredReasonTypes:data.requiredReasonTypes||['MC','Emergency Leave','CSDS Leave']});
