@@ -424,7 +424,422 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
 <script src="firebase-config.js"></script>
-<script src="catatan.js"></script>
+<script>
+/*
+ * catatan.js — reads and writes the "CATATAN CUTI PEGAWAI DAN KAKITANGAN (HRM)" Excel format.
+ * No external libraries. Works in browsers and Node 18+.
+ *
+ *   CatatanXlsx.build({employees, leaves, legend, years}) -> Promise<Uint8Array>   (.xlsx file bytes)
+ *   CatatanXlsx.parse(arrayBuffer)                        -> Promise<{employees, leaves, years, warnings}>
+ *
+ * employees: [{name, position, ic, fileNo, nameCode}]
+ * leaves   : [{emp: index into employees, code: 'CT', start: 'YYYY-MM-DD', end: 'YYYY-MM-DD'}]
+ * legend   : [{code:'CT', name:'Cuti Tahunan'}]   (optional; derived from leaves when missing)
+ */
+(function (root) {
+  'use strict';
+
+  const MONTHS = ['JANUARI','FEBRUARI','MAC','APRIL','MEI','JUN','JULAI','OGOS','SEPTEMBER','OKTOBER','NOVEMBER','DISEMBER'];
+  const CANON = [
+    ['CT',   'Cuti Tahunan',                'FF66CCFF'],
+    ['CM',   'Cuti Mandatori',              'FFFF5050'],
+    ['EL',   'Cuti Serta Merta',            'FFFFFF66'],
+    ['CSDS', 'Cuti Sakit Disahkan Sendiri', 'FFCCFF66'],
+    ['CS',   'Cuti Sakit',                  'FFCC99FF'],
+    ['CB',   'Cuti Beranak',                'FFFF99CC']
+  ];
+  const FALLBACK_COLORS = ['FFFFCC99','FF99FFCC','FFCCCCFF','FFFFE699','FFB4C7E7','FFF4B084','FFC6E0B4','FFD9D2E9'];
+
+  /* ---------- small helpers ---------- */
+  const pad2 = n => String(n).padStart(2, '0');
+  const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '');
+  const colName = n => { let s = ''; while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); } return s; };
+  const colNum = s => { let n = 0; for (const ch of s) n = n * 26 + ch.charCodeAt(0) - 64; return n; };
+  const norm = s => String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
+  const parseISO = s => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s || ''); return m ? { y: +m[1], m: +m[2], d: +m[3] } : null; };
+  const dayNum = o => Math.round(Date.UTC(o.y, o.m - 1, o.d) / 86400000);
+  const fromDayNum = n => { const d = new Date(n * 86400000); return { y: d.getUTCFullYear(), m: d.getUTCMonth() + 1, d: d.getUTCDate() }; };
+  const iso = o => `${o.y}-${pad2(o.m)}-${pad2(o.d)}`;
+  const baseCodes = code => norm(code).split(/\s+dan\s+/i).map(p => norm(p.replace(/\(.*?\)/g, ''))).filter(Boolean);
+
+  function colorFor(code, extra) {
+    const first = (baseCodes(code)[0] || '').toUpperCase();
+    const hit = CANON.find(c => c[0] === first);
+    if (hit) return hit[2];
+    const key = first || norm(code).toUpperCase();
+    if (!extra.has(key)) extra.set(key, FALLBACK_COLORS[extra.size % FALLBACK_COLORS.length]);
+    return extra.get(key);
+  }
+
+  /* ---------- CRC32 / ZIP (store) / unzip ---------- */
+  let CRC_TABLE = null;
+  function crc32(u8) {
+    if (!CRC_TABLE) { CRC_TABLE = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; CRC_TABLE[n] = c >>> 0; } }
+    let c = 0xFFFFFFFF; for (let i = 0; i < u8.length; i++) c = CRC_TABLE[(c ^ u8[i]) & 0xFF] ^ (c >>> 8);
+    return (c ^ 0xFFFFFFFF) >>> 0;
+  }
+  function zipStore(files) {
+    const enc = new TextEncoder(), parts = [], central = []; let offset = 0;
+    const dosTime = 0, dosDate = ((2026 - 1980) << 9) | (1 << 5) | 1;
+    for (const f of files) {
+      const name = enc.encode(f.name), data = f.data, crc = crc32(data);
+      const lh = new DataView(new ArrayBuffer(30));
+      lh.setUint32(0, 0x04034b50, true); lh.setUint16(4, 20, true); lh.setUint16(6, 0x0800, true); lh.setUint16(8, 0, true);
+      lh.setUint16(10, dosTime, true); lh.setUint16(12, dosDate, true); lh.setUint32(14, crc, true);
+      lh.setUint32(18, data.length, true); lh.setUint32(22, data.length, true); lh.setUint16(26, name.length, true); lh.setUint16(28, 0, true);
+      parts.push(new Uint8Array(lh.buffer), name, data);
+      const ch = new DataView(new ArrayBuffer(46));
+      ch.setUint32(0, 0x02014b50, true); ch.setUint16(4, 20, true); ch.setUint16(6, 20, true); ch.setUint16(8, 0x0800, true); ch.setUint16(10, 0, true);
+      ch.setUint16(12, dosTime, true); ch.setUint16(14, dosDate, true); ch.setUint32(16, crc, true);
+      ch.setUint32(20, data.length, true); ch.setUint32(24, data.length, true); ch.setUint16(28, name.length, true);
+      ch.setUint32(42, offset, true);
+      central.push(new Uint8Array(ch.buffer), name);
+      offset += 30 + name.length + data.length;
+    }
+    const cdSize = central.reduce((a, b) => a + b.length, 0);
+    const end = new DataView(new ArrayBuffer(22));
+    end.setUint32(0, 0x06054b50, true); end.setUint16(8, files.length, true); end.setUint16(10, files.length, true);
+    end.setUint32(12, cdSize, true); end.setUint32(16, offset, true);
+    const all = [...parts, ...central, new Uint8Array(end.buffer)];
+    const out = new Uint8Array(all.reduce((a, b) => a + b.length, 0)); let p = 0;
+    for (const a of all) { out.set(a, p); p += a.length; }
+    return out;
+  }
+  async function inflateRaw(u8) {
+    const stream = new Blob([u8]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+    return new Uint8Array(await new Response(stream).arrayBuffer());
+  }
+  async function unzip(buf) {
+    const u8 = buf instanceof Uint8Array ? buf : new Uint8Array(buf), dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+    let e = -1; for (let i = u8.length - 22; i >= Math.max(0, u8.length - 66000); i--) if (dv.getUint32(i, true) === 0x06054b50) { e = i; break; }
+    if (e < 0) throw new Error('Not a valid .xlsx file (zip directory not found).');
+    const count = dv.getUint16(e + 10, true); let p = dv.getUint32(e + 16, true); const out = {}; const dec = new TextDecoder();
+    for (let i = 0; i < count; i++) {
+      if (dv.getUint32(p, true) !== 0x02014b50) throw new Error('Corrupt zip directory.');
+      const method = dv.getUint16(p + 10, true), csize = dv.getUint32(p + 20, true);
+      const nlen = dv.getUint16(p + 28, true), xlen = dv.getUint16(p + 30, true), clen = dv.getUint16(p + 32, true), lho = dv.getUint32(p + 42, true);
+      const name = dec.decode(u8.subarray(p + 46, p + 46 + nlen));
+      const lnl = dv.getUint16(lho + 26, true), lxl = dv.getUint16(lho + 28, true), start = lho + 30 + lnl + lxl;
+      const raw = u8.subarray(start, start + csize);
+      out[name] = method === 0 ? raw : method === 8 ? await inflateRaw(raw) : null;
+      p += 46 + nlen + xlen + clen;
+    }
+    return out;
+  }
+
+  /* ---------- styles registry ---------- */
+  function Styles() {
+    const fonts = [], fills = ['<fill><patternFill patternType="none"/></fill>', '<fill><patternFill patternType="gray125"/></fill>'];
+    const borders = ['<border><left/><right/><top/><bottom/><diagonal/></border>'], xfs = [], fontIdx = new Map(), fillIdx = new Map(), borderIdx = new Map(), xfIdx = new Map();
+    fonts.push('<font><sz val="11"/><color theme="1"/><name val="Calibri"/><family val="2"/><scheme val="minor"/></font>');
+    xfs.push('<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>');
+    const side = (n, on) => on ? `<${n} style="thin"><color indexed="64"/></${n}>` : `<${n}/>`;
+    return {
+      xf(o) {
+        const key = JSON.stringify(o);
+        if (xfIdx.has(key)) return xfIdx.get(key);
+        const fk = `${o.sz || 10}|${o.b ? 1 : 0}|${o.color || ''}`;
+        if (!fontIdx.has(fk)) { fontIdx.set(fk, fonts.length); fonts.push(`<font>${o.b ? '<b/>' : ''}<sz val="${o.sz || 10}"/>${o.color ? `<color rgb="${o.color}"/>` : ''}<name val="Gisha"/><family val="2"/></font>`); }
+        let fillId = 0; if (o.fill) { if (!fillIdx.has(o.fill)) { fillIdx.set(o.fill, fills.length); fills.push(`<fill><patternFill patternType="solid"><fgColor rgb="${o.fill}"/><bgColor indexed="64"/></patternFill></fill>`); } fillId = fillIdx.get(o.fill); }
+        const bk = `${o.l ? 1 : 0}${o.r ? 1 : 0}${o.t ? 1 : 0}${o.bt ? 1 : 0}`; let borderId = 0;
+        if (bk !== '0000') { if (!borderIdx.has(bk)) { borderIdx.set(bk, borders.length); borders.push(`<border>${side('left', o.l)}${side('right', o.r)}${side('top', o.t)}${side('bottom', o.bt)}<diagonal/></border>`); } borderId = borderIdx.get(bk); }
+        const al = `<alignment${o.h ? ` horizontal="${o.h}"` : ''}${o.v ? ` vertical="${o.v}"` : ''}${o.wrap ? ' wrapText="1"' : ''}/>`;
+        const id = xfs.length;
+        xfs.push(`<xf numFmtId="0" fontId="${fontIdx.get(fk)}" fillId="${fillId}" borderId="${borderId}" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1">${al}</xf>`);
+        xfIdx.set(key, id); return id;
+      },
+      xml() {
+        return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
+          `<fonts count="${fonts.length}">${fonts.join('')}</fonts><fills count="${fills.length}">${fills.join('')}</fills><borders count="${borders.length}">${borders.join('')}</borders>` +
+          '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>' +
+          `<cellXfs count="${xfs.length}">${xfs.join('')}</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`;
+      }
+    };
+  }
+
+  /* ---------- sheet builder ---------- */
+  function SheetModel() {
+    const cells = new Map(), merges = [], heights = new Map();
+    return {
+      cells, merges, heights,
+      set(r, c, v, s) { cells.set(r * 1000 + c, { r, c, v, s }); },
+      merge(r1, c1, r2, c2) { if (r1 !== r2 || c1 !== c2) merges.push(`${colName(c1)}${r1}:${colName(c2)}${r2}`); }
+    };
+  }
+
+  function entryText(code, st, en) {
+    const a = parseISO(st), b = parseISO(en) || a, days = dayNum(b) - dayNum(a) + 1;
+    const f = o => `${pad2(o.d)}.${pad2(o.m)}.${o.y}`;
+    let dt;
+    if (a.y === b.y && a.m === b.m && a.d === b.d) dt = f(a);
+    else if (a.y === b.y && a.m === b.m) dt = `${pad2(a.d)} - ${pad2(b.d)}.${pad2(a.m)}.${a.y}`;
+    else dt = `${f(a)} - ${f(b)}`;
+    return `${code}\n${dt}\n(${pad2(days)} hari)`;
+  }
+
+  function buildSheet(year, input, styles, extraColors) {
+    const sm = SheetModel(), emps = input.employees, LAST_COL = 17;
+    const legend = input.legend;
+    const n = legend.length, hdrRow = 5 + n, bodyStart = 6 + n;
+    const W = { l: 1, r: 1, t: 1, bt: 1 };
+    // ---- title row
+    const titleS = styles.xf({ sz: 15, b: 1, fill: 'FF0099CC', h: 'center', v: 'center', wrap: 1 });
+    const titleL = styles.xf({ sz: 15, b: 1, fill: 'FF0099CC', h: 'center', v: 'center', wrap: 1, l: 1 });
+    sm.set(1, 1, 'CATATAN CUTI PEGAWAI DAN KAKITANGAN\nUNIT PENGURUSAN SUMBER MANUSIA \n[HRM]', titleL);
+    for (let c = 2; c <= LAST_COL; c++) sm.set(1, c, undefined, titleS);
+    sm.merge(1, 1, 1, LAST_COL); sm.heights.set(1, 65.25); sm.heights.set(2, 15.75);
+    // ---- legend
+    const grey = 'FFBFBFBF';
+    const legHdr = styles.xf({ sz: 12, b: 1, fill: grey, h: 'center', v: 'center', wrap: 1 });
+    sm.set(3, 1, 'JENIS CUTI / KOD', legHdr); for (let c = 2; c <= 5; c++) sm.set(3, c, undefined, legHdr);
+    sm.merge(3, 1, 3, 4); sm.heights.set(3, 18.75);
+    const legName = styles.xf({ sz: 9, b: 1, h: 'right', v: 'center', wrap: 1 });
+    legend.forEach((L, i) => {
+      const r = 4 + i;
+      sm.set(r, 1, L.name, legName); sm.set(r, 2, undefined, legName); sm.set(r, 3, undefined, legName); sm.merge(r, 1, r, 3);
+      sm.set(r, 4, ': ' + L.code, styles.xf({ sz: 10, b: 1, fill: colorFor(L.code, extraColors), h: 'left', v: 'center', wrap: 1 }));
+      sm.heights.set(r, 16.5);
+    });
+    sm.heights.set(4 + n, 9);
+    // ---- table header
+    const H = { sz: 10, b: 1, fill: grey, h: 'center', v: 'center', wrap: 1, l: 1, r: 1, t: 1, bt: 1 };
+    sm.set(hdrRow, 1, 'BIL.', styles.xf(H)); sm.set(hdrRow, 2, 'RUJ. FAIL \nJPKT/', styles.xf(H)); sm.set(hdrRow, 3, 'KOD NAMA', styles.xf(H));
+    sm.set(hdrRow, 4, 'NAMA, JAWATAN \nDAN KAD PENGENALAN', styles.xf({ ...H, r: 0 })); sm.set(hdrRow, 5, undefined, styles.xf({ ...H, l: 0 })); sm.merge(hdrRow, 4, hdrRow, 5);
+    MONTHS.forEach((m, i) => sm.set(hdrRow, 6 + i, m, styles.xf(H)));
+    sm.heights.set(hdrRow, 29.25);
+
+    // region helper: fills a rectangle with per-edge borders, merges it, sets value on top-left
+    function region(r1, c1, r2, c2, value, base) {
+      for (let r = r1; r <= r2; r++) for (let c = c1; c <= c2; c++) {
+        const o = { ...base, l: c === c1 ? 1 : 0, r: c === c2 ? 1 : 0, t: r === r1 ? 1 : 0, bt: r === r2 ? 1 : 0 };
+        sm.set(r, c, r === r1 && c === c1 ? value : undefined, styles.xf(o));
+      }
+      sm.merge(r1, c1, r2, c2);
+    }
+    const BLUE = 'FF0000FF';
+    let row = bodyStart;
+    emps.forEach((emp, ei) => {
+      // place entries for this year
+      const mine = input.leaves.filter(l => l.emp === ei).map(l => {
+        let a = parseISO(l.start), b = parseISO(l.end) || a; if (dayNum(b) < dayNum(a)) { const t = a; a = b; b = t; }
+        return { code: l.code, a, b, s: iso(a), e: iso(b) };
+      }).filter(l => l.a.y === year).sort((x, y) => dayNum(x.a) - dayNum(y.a) || dayNum(x.b) - dayNum(y.b));
+      const occ = Array.from({ length: 13 }, () => new Set()); let maxRow = 0;
+      mine.forEach(en => {
+        en.c1 = en.a.m; en.c2 = en.b.y === year ? en.b.m : 12;
+        let r = 0; for (;; r++) { let free = true; for (let c = en.c1; c <= en.c2; c++) if (occ[c].has(r)) { free = false; break; } if (free) break; }
+        for (let c = en.c1; c <= en.c2; c++) occ[c].add(r);
+        en.row = r; maxRow = Math.max(maxRow, r);
+      });
+      const R = Math.max(3, maxRow + 1);
+      // absorb free rows below single-month entries
+      mine.forEach(en => {
+        en.rowEnd = en.row; let rr = en.row;
+        for (;;) {
+          if (rr + 1 >= R) break; let free = true;
+          for (let c = en.c1; c <= en.c2; c++) if (occ[c].has(rr + 1)) { free = false; break; }
+          if (!free) break; rr++; for (let c = en.c1; c <= en.c2; c++) occ[c].add(rr);
+        }
+        en.rowEnd = rr;
+      });
+      const top = row, bottom = row + R - 1;
+      for (let r = top; r <= bottom; r++) sm.heights.set(r, 40.5);
+      const plain = { sz: 10, h: 'center', v: 'center' };
+      region(top, 1, bottom, 1, ei + 1, plain);
+      region(top, 2, bottom, 2, String(emp.fileNo || '').replace(/^\s*JPKT\s*\/\s*/i, ''), { ...plain, wrap: 1 });
+      region(top, 3, bottom, 3, emp.nameCode || undefined, { ...plain, b: 1, wrap: 1 });
+      const restLines = [emp.position, emp.ic].map(x => String(x || '').trim()).filter(Boolean);
+      const nameVal = { rich: [[String(emp.name || '').trim(), true]].concat(restLines.length ? [['\n' + restLines.join('\n'), false]] : []) };
+      region(top, 4, bottom, 5, nameVal, { ...plain, wrap: 1 });
+      // entries
+      mine.forEach(en => region(top + en.row, 5 + en.c1, top + en.rowEnd, 5 + en.c2, entryText(en.code, en.s, en.e),
+        { sz: 10, color: BLUE, fill: colorFor(en.code, extraColors), h: 'center', v: 'center', wrap: 1 }));
+      // empty runs per month column
+      for (let c = 1; c <= 12; c++) {
+        let r = 0;
+        while (r < R) {
+          if (occ[c].has(r)) { r++; continue; }
+          let r2 = r; while (r2 + 1 < R && !occ[c].has(r2 + 1)) r2++;
+          region(top + r, 5 + c, top + r2, 5 + c, undefined, { sz: 10, color: BLUE, h: 'center', v: 'center', wrap: 1 });
+          r = r2 + 1;
+        }
+      }
+      row += R;
+    });
+    return { sm, lastRow: Math.max(row - 1, hdrRow), legendCount: n, year };
+  }
+
+  function sheetXml(model, colStyles, selected) {
+    const { sm, lastRow } = model, rows = new Map();
+    for (const c of sm.cells.values()) { if (!rows.has(c.r)) rows.set(c.r, []); rows.get(c.r).push(c); }
+    for (let r = 1; r <= lastRow; r++) if (!rows.has(r)) rows.set(r, []);
+    const rowXml = [...rows.keys()].sort((a, b) => a - b).map(r => {
+      const ht = sm.heights.get(r), cs = rows.get(r).sort((a, b) => a.c - b.c).map(c => {
+        const ref = `${colName(c.c)}${c.r}`;
+        if (c.v === undefined || c.v === null || c.v === '') return `<c r="${ref}" s="${c.s}"/>`;
+        if (typeof c.v === 'number') return `<c r="${ref}" s="${c.s}"><v>${c.v}</v></c>`;
+        if (typeof c.v === 'object' && c.v.rich) {
+          const runs = c.v.rich.map(([t, bold]) => `<r><rPr>${bold ? '<b/>' : ''}<sz val="10"/><rFont val="Gisha"/><family val="2"/></rPr><t xml:space="preserve">${esc(t)}</t></r>`).join('');
+          return `<c r="${ref}" s="${c.s}" t="inlineStr"><is>${runs}</is></c>`;
+        }
+        return `<c r="${ref}" s="${c.s}" t="inlineStr"><is><t xml:space="preserve">${esc(c.v)}</t></is></c>`;
+      }).join('');
+      return `<row r="${r}"${ht ? ` ht="${ht}" customHeight="1"` : ''}>${cs}</row>`;
+    }).join('');
+    const widths = [[1, 1, 5.28515625, colStyles.a], [2, 3, null, colStyles.b], [4, 5, null, colStyles.d], [6, 17, 17.7109375, colStyles.a]];
+    const cols = `<cols><col min="1" max="1" width="5.28515625" style="${colStyles.a}" customWidth="1"/><col min="2" max="2" width="10.28515625" style="${colStyles.b}" customWidth="1"/>` +
+      `<col min="3" max="3" width="9.140625" style="${colStyles.b}" customWidth="1"/><col min="4" max="4" width="10.85546875" style="${colStyles.d}" customWidth="1"/>` +
+      `<col min="5" max="5" width="13.85546875" style="${colStyles.d}" customWidth="1"/><col min="6" max="17" width="17.7109375" style="${colStyles.a}" customWidth="1"/></cols>`;
+    return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">' +
+      '<sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>' + `<dimension ref="A1:Q${lastRow}"/>` +
+      `<sheetViews><sheetView ${selected ? 'tabSelected="1" ' : ''}zoomScaleNormal="100" workbookViewId="0"/></sheetViews><sheetFormatPr defaultRowHeight="15"/>` +
+      cols + `<sheetData>${rowXml}</sheetData>` + `<mergeCells count="${sm.merges.length}">${sm.merges.map(m => `<mergeCell ref="${m}"/>`).join('')}</mergeCells>` +
+      '<printOptions horizontalCentered="1"/><pageMargins left="0" right="0" top="0.74803149599999996" bottom="0.24803149599999999" header="0.31496062992126" footer="0.31496062992126"/>' +
+      '<pageSetup paperSize="9" scale="85" fitToHeight="0" orientation="portrait"/><drawing r:id="rId1"/></worksheet>';
+  }
+
+  function drawingXml(year, legendCount) {
+    const run = (t, extra) => `<a:r><a:rPr lang="en-US" sz="3200" b="1"${extra || ''}><a:latin typeface="Gisha"/><a:cs typeface="Gisha"/></a:rPr><a:t>${t}</a:t></a:r>`;
+    return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">' +
+      `<xdr:twoCellAnchor><xdr:from><xdr:col>8</xdr:col><xdr:colOff>770285</xdr:colOff><xdr:row>1</xdr:row><xdr:rowOff>115957</xdr:rowOff></xdr:from>` +
+      `<xdr:to><xdr:col>10</xdr:col><xdr:colOff>1109870</xdr:colOff><xdr:row>${Math.max(legendCount, 4)}</xdr:row><xdr:rowOff>107675</xdr:rowOff></xdr:to>` +
+      '<xdr:sp macro="" textlink=""><xdr:nvSpPr><xdr:cNvPr id="2" name="TextBox 1"/><xdr:cNvSpPr txBox="1"/></xdr:nvSpPr>' +
+      '<xdr:spPr><a:xfrm><a:off x="7851915" y="944218"/><a:ext cx="2824368" cy="637761"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom>' +
+      '<a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill><a:ln w="9525" cmpd="sng"><a:solidFill><a:srgbClr val="7F7F7F"/></a:solidFill></a:ln></xdr:spPr>' +
+      '<xdr:txBody><a:bodyPr vertOverflow="clip" horzOverflow="clip" wrap="square" rtlCol="0" anchor="ctr"/><a:lstStyle/><a:p><a:pPr algn="ctr"/>' +
+      run('TAHUN') + run(' ' + year, ' baseline="0"') + '</a:p></xdr:txBody></xdr:sp><xdr:clientData/></xdr:twoCellAnchor></xdr:wsDr>';
+  }
+
+  async function build(input) {
+    const emps = input.employees || [], leaves = input.leaves || [];
+    let years = (input.years && input.years.length ? input.years : [...new Set(leaves.map(l => (parseISO(l.start) || {}).y).filter(Boolean))]).slice().sort((a, b) => a - b);
+    if (!years.length) years = [new Date().getFullYear()];
+    // legend: given, else canonical codes used + any other codes
+    let legend = (input.legend || []).slice();
+    if (!legend.length) {
+      const seen = new Set(); leaves.forEach(l => baseCodes(l.code).forEach(c => seen.add(c.toUpperCase())));
+      CANON.forEach(c => { if (seen.has(c[0])) legend.push({ code: c[0], name: c[1] }); });
+      [...seen].filter(c => !CANON.some(k => k[0] === c)).forEach(c => legend.push({ code: c, name: c }));
+    }
+    const styles = Styles(), extraColors = new Map(), colStyles = {
+      a: styles.xf({ sz: 11, h: 'center' }), b: styles.xf({ sz: 11, b: 1, h: 'center' }), d: styles.xf({ sz: 11, h: 'left', v: 'center', wrap: 1 })
+    };
+    const sheets = years.map(y => buildSheet(y, { employees: emps, leaves, legend }, styles, extraColors));
+    const enc = new TextEncoder(), files = [], add = (name, text) => files.push({ name, data: enc.encode(text) });
+    const X = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n';
+    add('[Content_Types].xml', X + '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/>' +
+      '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>' +
+      sheets.map((s, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/drawings/drawing${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/>`).join('') +
+      '<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/><Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/></Types>');
+    add('_rels/.rels', X + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>' +
+      '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/></Relationships>');
+    add('docProps/core.xml', X + '<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:title>CATATAN CUTI (HRM)</dc:title><dc:creator>HRM Leave Management</dc:creator><dcterms:created xsi:type="dcterms:W3CDTF">' + new Date().toISOString().replace(/\.\d+Z$/, 'Z') + '</dcterms:created></cp:coreProperties>');
+    add('docProps/app.xml', X + '<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"><Application>Microsoft Excel</Application></Properties>');
+    add('xl/workbook.xml', X + '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><bookViews><workbookView xWindow="-120" yWindow="-120" windowWidth="29040" windowHeight="15720" tabRatio="638"/></bookViews><sheets>' +
+      sheets.map((s, i) => `<sheet name="HRM ${s.year}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('') + '</sheets><calcPr calcId="191029"/></workbook>');
+    add('xl/_rels/workbook.xml.rels', X + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+      sheets.map((s, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join('') +
+      `<Relationship Id="rId${sheets.length + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`);
+    sheets.forEach((s, i) => {
+      add(`xl/worksheets/sheet${i + 1}.xml`, sheetXml(s, colStyles, i === 0));
+      add(`xl/worksheets/_rels/sheet${i + 1}.xml.rels`, X + `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing${i + 1}.xml"/></Relationships>`);
+      add(`xl/drawings/drawing${i + 1}.xml`, drawingXml(s.year, s.legendCount));
+    });
+    add('xl/styles.xml', styles.xml());
+    return zipStore(files);
+  }
+
+  /* ---------- parse ---------- */
+  const decodeXml = s => s.replace(/&#x([0-9a-f]+);/gi, (m, h) => String.fromCodePoint(parseInt(h, 16))).replace(/&#(\d+);/g, (m, d) => String.fromCodePoint(+d))
+    .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&').replace(/_x000D_/g, '');
+  const textOf = xml => { let out = '', re = /<t(?:\s[^>]*)?>([\s\S]*?)<\/t>/g, m; while ((m = re.exec(xml))) out += m[1]; return decodeXml(out); };
+
+  function readSharedStrings(xml) {
+    if (!xml) return []; const out = [], re = /<si>([\s\S]*?)<\/si>|<si\/>/g; let m;
+    while ((m = re.exec(xml))) out.push(m[1] ? textOf(m[1]) : ''); return out;
+  }
+  function readSheetCells(xml, shared) {
+    const rows = new Map(), re = /<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g; let m;
+    while ((m = re.exec(xml))) {
+      const attrs = m[1], body = m[2]; if (!body) continue;
+      const ref = /\br="([A-Z]+)(\d+)"/.exec(attrs); if (!ref) continue;
+      const t = (/\bt="(\w+)"/.exec(attrs) || [])[1]; let val = '';
+      if (t === 'inlineStr') val = textOf(body);
+      else { const v = /<v>([\s\S]*?)<\/v>/.exec(body); if (!v) continue; val = t === 's' ? (shared[+v[1]] || '') : decodeXml(v[1]); }
+      if (val === '') continue;
+      const r = +ref[2]; if (!rows.has(r)) rows.set(r, new Map()); rows.get(r).set(colNum(ref[1]), val);
+    }
+    return rows;
+  }
+
+  function parseEntry(text) {
+    const lines = String(text).split(/\r?\n/).map(norm).filter(Boolean); if (lines.length < 2) return null;
+    const code = lines[0], rest = lines.slice(1).join(' ');
+    const daysM = /\((\d+)\s*hari\)/i.exec(rest), days = daysM ? +daysM[1] : null, body = rest.replace(/\(\s*\d+\s*hari\)/i, '').trim();
+    let m, a, b;
+    if ((m = /^(\d{1,2})\s*-\s*(\d{1,2})\.(\d{1,2})[.\s]+(\d{4})/.exec(body))) { a = { y: +m[4], m: +m[3], d: +m[1] }; b = { y: +m[4], m: +m[3], d: +m[2] }; }
+    else if ((m = /^(\d{1,2})\.(\d{1,2})\s*-\s*(\d{1,2})\.(\d{1,2})[.\s]+(\d{4})/.exec(body))) { a = { y: +m[5], m: +m[2], d: +m[1] }; b = { y: +m[5], m: +m[4], d: +m[3] }; }
+    else if ((m = /^(\d{1,2})\.(\d{1,2})[.\s]+(\d{4})\s*-\s*(\d{1,2})\.(\d{1,2})[.\s]+(\d{4})/.exec(body))) { a = { y: +m[3], m: +m[2], d: +m[1] }; b = { y: +m[6], m: +m[5], d: +m[4] }; }
+    else if ((m = /^(\d{1,2})\.(\d{1,2})[.\s]+(\d{4})/.exec(body))) { a = { y: +m[3], m: +m[2], d: +m[1] }; b = a; }
+    else return null;
+    if (dayNum(b) < dayNum(a)) b = days ? fromDayNum(dayNum(a) + days - 1) : { y: b.y + 1, m: b.m, d: b.d };
+    return { code, start: iso(a), end: iso(b) };
+  }
+
+  async function parse(buf) {
+    const files = await unzip(buf), dec = new TextDecoder(), get = n => files[n] ? dec.decode(files[n]) : '';
+    const wb = get('xl/workbook.xml'); if (!wb) throw new Error('This file is not an Excel workbook (.xlsx).');
+    const rels = {}; (get('xl/_rels/workbook.xml.rels').match(/<Relationship\b[^>]*>/g) || []).forEach(t => {
+      const id = /\bId="([^"]+)"/.exec(t), tg = /\bTarget="([^"]+)"/.exec(t); if (id && tg) rels[id[1]] = tg[1].replace(/^\//, '').replace(/^(?!xl\/)/, 'xl/'); });
+    const shared = readSharedStrings(get('xl/sharedStrings.xml'));
+    const employees = [], empByName = new Map(), leaves = [], warnings = [], years = new Set();
+    const sheetTags = wb.match(/<sheet\b[^>]*>/g) || [];
+    for (const tag of sheetTags) {
+      const name = decodeXml((/\bname="([^"]*)"/.exec(tag) || [])[1] || ''), rid = (/\br:id="([^"]+)"/.exec(tag) || [])[1], path = rels[rid]; if (!path || !files[path]) continue;
+      const rows = readSheetCells(dec.decode(files[path]), shared);
+      // header row
+      let hdr = 0, cols = {}, monthCols = {};
+      for (const [r, cs] of [...rows.entries()].sort((a, b) => a[0] - b[0])) {
+        const vals = [...cs.entries()]; const hasBil = vals.some(([, v]) => /^BIL\.?$/i.test(norm(v)));
+        const monthHits = vals.filter(([, v]) => MONTHS.includes(norm(v).toUpperCase()));
+        if (hasBil && monthHits.length >= 6) {
+          hdr = r; monthHits.forEach(([c, v]) => { monthCols[c] = MONTHS.indexOf(norm(v).toUpperCase()) + 1; });
+          vals.forEach(([c, v]) => { const t = norm(v).toUpperCase(); if (/^NAMA/.test(t)) cols.name = c; else if (/^RUJ/.test(t)) cols.file = c; else if (/^KOD/.test(t)) cols.code = c; });
+          break;
+        }
+      }
+      if (!hdr || !cols.name) continue;
+      const lastRow = Math.max(...rows.keys()), starts = [];
+      for (let r = hdr + 1; r <= lastRow; r++) if (rows.get(r) && rows.get(r).get(cols.name)) starts.push(r);
+      starts.forEach((r0, bi) => {
+        const r1 = (starts[bi + 1] || lastRow + 1) - 1, top = rows.get(r0);
+        const lines = String(top.get(cols.name)).split(/\r?\n/).map(norm).filter(Boolean);
+        const nm = lines[0] || ''; let ic = '', pos = lines.slice(1);
+        if (pos.length && /^\d{2}-\d+/.test(pos[pos.length - 1])) ic = pos.pop();
+        const key = nm.toLowerCase(); let idx = empByName.get(key);
+        const info = { name: nm, position: pos.join(' '), ic, fileNo: cols.file ? norm(top.get(cols.file) || '') : '', nameCode: cols.code ? norm(top.get(cols.code) || '') : '' };
+        if (idx === undefined) { idx = employees.length; employees.push(info); empByName.set(key, idx); }
+        else { const e = employees[idx]; ['position', 'ic', 'fileNo', 'nameCode'].forEach(k => { if (!e[k] && info[k]) e[k] = info[k]; }); }
+        for (let r = r0; r <= r1; r++) {
+          const cs = rows.get(r); if (!cs) continue;
+          for (const [c, v] of cs) {
+            if (!monthCols[c]) continue;
+            const en = parseEntry(v);
+            if (en) { leaves.push({ emp: idx, code: en.code, start: en.start, end: en.end }); years.add(+en.start.slice(0, 4)); }
+            else warnings.push(`${name} ${colName(c)}${r}: could not read "${norm(v).slice(0, 40)}"`);
+          }
+        }
+      });
+    }
+    if (!employees.length) throw new Error('No staff table found. The sheet must have the headings BIL., RUJ. FAIL, KOD NAMA, NAMA… and JANUARI–DISEMBER.');
+    return { employees, leaves, years: [...years].sort((a, b) => a - b), warnings };
+  }
+
+  root.CatatanXlsx = { build, parse, baseCodes, CANON, _zipStore: zipStore, _unzip: unzip };
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
 <script>
 (() => {
   // Missing elements (e.g. removed buttons) return a harmless detached <div> instead of null.
