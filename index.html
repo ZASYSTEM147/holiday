@@ -422,7 +422,7 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
       <div id="recordList"></div>
     </div>
   </section>
-  <p class="footer">Prototype: data is stored in this browser using local storage. Use “Export backup” to save a JSON copy. This is not a secure multi-user login or shared database; do not store sensitive information in this demo.</p>
+  <p class="footer">HRM Leave Management · build 2026-10-26-F · data is saved in Firebase. Excel export follows the Leave Types tab (names, codes and colours).</p>
 </div>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
@@ -465,6 +465,8 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
   const dayNum = o => Math.round(Date.UTC(o.y, o.m - 1, o.d) / 86400000);
   const fromDayNum = n => { const d = new Date(n * 86400000); return { y: d.getUTCFullYear(), m: d.getUTCMonth() + 1, d: d.getUTCDate() }; };
   const iso = o => `${o.y}-${pad2(o.m)}-${pad2(o.d)}`;
+  // readable text colour on a given ARGB fill: blue (as in the original sheet) on light fills, white on dark ones
+  const isDark = argb => { const h = String(argb || '').slice(-6); const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16); return (r * 299 + g * 587 + b * 114) / 1000 < 140; };
   const baseCodes = code => norm(code).split(/\s+dan\s+/i).map(p => norm(p.replace(/\(.*?\)/g, ''))).filter(Boolean);
 
   function colorFor(code, extra) {
@@ -602,8 +604,13 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
     legend.forEach((L, i) => {
       const r = 4 + i;
       sm.set(r, 1, L.name, legName); sm.set(r, 2, undefined, legName); sm.set(r, 3, undefined, legName); sm.merge(r, 1, r, 3);
-      sm.set(r, 4, ': ' + L.code, styles.xf({ sz: 10, b: 1, fill: colorFor(L.code, extraColors), h: 'left', v: 'center', wrap: 1 }));
-      sm.heights.set(r, 16.5);
+      {
+        const fc = L.color || colorFor(L.code, extraColors), codeText = ': ' + L.code;
+        const cs = styles.xf({ sz: 10, b: 1, color: isDark(fc) ? 'FFFFFFFF' : undefined, fill: fc, h: 'left', v: 'center', wrap: 1 });
+        sm.set(r, 4, codeText, cs);
+        if (codeText.length > 7) { sm.set(r, 5, undefined, cs); sm.merge(r, 4, r, 5); if (codeText.length > 26) sm.heights.set(r, 30); }
+      }
+      if (!sm.heights.has(r)) sm.heights.set(r, 16.5);
     });
     sm.heights.set(4 + n, 9);
     // ---- table header
@@ -627,7 +634,7 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
       // place entries for this year
       const mine = input.leaves.filter(l => l.emp === ei).map(l => {
         let a = parseISO(l.start), b = parseISO(l.end) || a; if (dayNum(b) < dayNum(a)) { const t = a; a = b; b = t; }
-        return { code: l.code, a, b, s: iso(a), e: iso(b) };
+        return { code: l.code, color: l.color, a, b, s: iso(a), e: iso(b) };
       }).filter(l => l.a.y === year).sort((x, y) => dayNum(x.a) - dayNum(y.a) || dayNum(x.b) - dayNum(y.b));
       const occ = Array.from({ length: 13 }, () => new Set()); let maxRow = 0;
       mine.forEach(en => {
@@ -658,7 +665,7 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
       region(top, 4, bottom, 5, nameVal, { ...plain, wrap: 1 });
       // entries
       mine.forEach(en => region(top + en.row, 5 + en.c1, top + en.rowEnd, 5 + en.c2, entryText(en.code, en.s, en.e),
-        { sz: 10, color: BLUE, fill: colorFor(en.code, extraColors), h: 'center', v: 'center', wrap: 1 }));
+        { sz: 10, color: isDark(en.color || colorFor(en.code, extraColors)) ? 'FFFFFFFF' : BLUE, fill: en.color || colorFor(en.code, extraColors), h: 'center', v: 'center', wrap: 1 }));
       // empty runs per month column
       for (let c = 1; c <= 12; c++) {
         let r = 0;
@@ -1892,15 +1899,16 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
     notify('Full system backup downloaded.');
   });
   // ===== CATATAN CUTI (HRM) Excel export / import =====
+  const MALAY_NAMES={'Annual Leave':'Cuti Tahunan','Emergency Leave':'Cuti Serta Merta','CSDS Leave':'Cuti Sakit Disahkan Sendiri','Mandatory':'Cuti Mandatori','Cuti Beranak':'Cuti Beranak','MC':'Cuti Sakit'};
+  function hexToArgb(hex){
+    let h=String(hex||'').trim().replace('#','');
+    if(h.length===3)h=h.split('').map(c=>c+c).join('');
+    return /^[0-9a-f]{6}$/i.test(h)?'FF'+h.toUpperCase():'FFE5E7EB';
+  }
+  const typeColorArgb=t=>hexToArgb((data.leaveTypeColors&&data.leaveTypeColors[t])||defaultTypeColor(t));
+  // One legend row per leave type in the system (same order, code and calendar colour)
   function catatanLegend(){
-    const CANON=window.CatatanXlsx.CANON, bases=new Map();
-    const addBase=code=>window.CatatanXlsx.baseCodes(code).forEach(b=>{const k=b.toUpperCase();if(!bases.has(k))bases.set(k,b);});
-    data.leaveTypes.forEach(t=>addBase(typeCode(t)));
-    data.leaves.forEach(l=>addBase(typeCode(l.type)));
-    const legend=[];
-    CANON.forEach(([c,n])=>{if(bases.has(c))legend.push({code:c,name:n});});
-    bases.forEach((orig,k)=>{if(!CANON.some(x=>x[0]===k)){const t=data.leaveTypes.find(x=>typeCode(x).toUpperCase()===k);legend.push({code:orig,name:t||orig});}});
-    return legend;
+    return data.leaveTypes.map(t=>({code:typeCode(t),name:MALAY_NAMES[t]||t,color:typeColorArgb(t)}));
   }
   function downloadBytes(filename,bytes,mime){
     const blob=new Blob([bytes],{type:mime}),url=URL.createObjectURL(blob),a=document.createElement('a');
@@ -1916,12 +1924,12 @@ button:hover{filter:brightness(.98);box-shadow:0 2px 8px #4b91c322}
         const i=data.employees.findIndex(e=>String(e.id)===String(l.employeeId)||(l.name&&e.name.toLowerCase()===String(l.name).toLowerCase()));
         const st=String(l.start||l.startDate||'').slice(0,10),en=String(l.end||l.endDate||st).slice(0,10);
         if(i<0||!st){skipped++;return;}
-        leaves.push({emp:i,code:typeCode(l.type),start:st,end:en});
+        leaves.push({emp:i,code:typeCode(l.type),color:typeColorArgb(l.type),start:st,end:en});
       });
       const years=[...new Set(leaves.map(l=>+l.start.slice(0,4)))];
       const bytes=await window.CatatanXlsx.build({employees:emps,leaves,legend:catatanLegend(),years});
       downloadBytes('CATATAN CUTI (HRM).xlsx',bytes,'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-      notify(`Excel exported (CATATAN CUTI format): ${emps.length} staff, ${leaves.length} leave record(s), sheet(s) ${years.length?years.map(y=>'HRM '+y).join(', '):'HRM '+new Date().getFullYear()}.`+(skipped?` ${skipped} record(s) without a matching employee were skipped.`:''));
+      notify(`Excel exported (build F, ${catatanLegend().length} leave types in legend): ${emps.length} staff, ${leaves.length} leave record(s), sheet(s) ${years.length?years.map(y=>'HRM '+y).join(', '):'HRM '+new Date().getFullYear()}.`+(skipped?` ${skipped} record(s) without a matching employee were skipped.`:''));
     }catch(err){console.error(err);notify('Could not create the Excel file: '+(err&&err.message||err),true);}
   });
   async function importCatatan(file){
